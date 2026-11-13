@@ -2372,10 +2372,11 @@
           <span class="help-text" style="margin-top:2px;display:block;">This offset and tone are used when you tune the dial. A channel from Directory &gt; Channels replaces them for that channel. Transmit stays off outside 144–148 MHz (2 m) or 420–450 MHz (70 cm). Listening, including weather radio, still works inside the module's range.</span>
           <label>Channel width:
             <select id="set-kv4p-bw">
-              <option value="25" selected>25 kHz</option>
-              <option value="12.5">12.5 kHz</option>
+              <option value="12.5" selected>12.5 kHz (what the SA818 accepts)</option>
+              <option value="25">25 kHz</option>
             </select>
           </label>
+          <span class="help-text" style="margin-top:2px;display:block;">The module answers the tune with "data out of range" unless the frequency is a multiple of this step (446.0000 is, 146.520 is not). 12.5 kHz is the command the SA818 manual uses. A rejected tune is announced and the dial stays on the frequency the radio actually reports.</span>
           <label class="checkbox-label" style="margin-top:6px;display:flex;align-items:center;gap:6px;">
             <input type="checkbox" id="set-kv4p-high" checked> High power (1 W; off is the module's low power)
           </label>

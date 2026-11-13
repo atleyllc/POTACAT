@@ -123,6 +123,40 @@ test('the rig editor tone list is the codec tone list', () => {
   assert.strictEqual(tones.CTCSS_HZ[12], 100);
 });
 
+test('SA818 group command matches arduino-dra818 sprintf, and 446.0000 is on both rasters', () => {
+  // DRA818::group at 89582e3 (the commit firmware v2.0.0.1 vendors):
+  //   dtostrf(freq, 8, 4) and AT+DMOSETGROUP=%01d,%s,%s,%04d,%c,%04d
+  // DRA818U manual example uses GBW 0. GBW 1 is 25 kHz and some modules
+  // answer "data out of range" to it.
+  assert.strictEqual(
+    P.sa818GroupCommand({ bw: P.BW_12K5, freqTx: 446, freqRx: 446, ctcssTx: 0, squelch: 0, ctcssRx: 0 }),
+    'AT+DMOSETGROUP=0,446.0000,446.0000,0000,0,0000\r\n',
+  );
+  assert.strictEqual(
+    P.sa818GroupCommand({ bw: P.BW_25K, freqTx: 446, freqRx: 446, ctcssTx: 0, squelch: 4, ctcssRx: 0 }),
+    'AT+DMOSETGROUP=1,446.0000,446.0000,0000,4,0000\r\n',
+  );
+  const packed = P.packHostDesiredState({
+    sequence: 1, memoryId: -1, flags: P.HOST_STATE_RADIO_CONFIG_VALID,
+    bw: P.BW_12K5, freqTx: 446, freqRx: 446, ctcssTx: 0, squelch: 0, ctcssRx: 0,
+  });
+  assert.strictEqual(packed.length, 22);
+  assert.strictEqual(packed[10], 0, 'bandwidth byte is 12.5 kHz, not 25');
+  assert.strictEqual(packed.subarray(11, 15).toString('hex'), '0000df43', '446.0 MHz float32 little-endian');
+  assert.strictEqual(packed.subarray(15, 19).toString('hex'), '0000df43');
+  const back = P.unpackHostDesiredState(packed);
+  assert.strictEqual(P.sa818GroupCommand(back).replace('freqTx', ''), P.sa818GroupCommand({
+    bw: back.bw, freqTx: back.freqTx, freqRx: back.freqRx, ctcssTx: back.ctcssTx, squelch: back.squelch, ctcssRx: back.ctcssRx,
+  }));
+  assert.strictEqual(P.snapMhz(446, P.BW_12K5).text, '446.0000');
+  assert.strictEqual(P.snapMhz(446, P.BW_25K).text, '446.0000');
+  // 146.520 is the 2 m calling channel and is NOT a 12.5 kHz step. The module would NAK it.
+  assert.notStrictEqual(P.snapMhz(146.52, P.BW_12K5).text, '146.5200');
+  assert.strictEqual(P.bandwidthByte(undefined), null);
+  assert.strictEqual(P.bandwidthByte('12.5'), P.BW_12K5);
+  assert.strictEqual(P.bandwidthByte('25'), P.BW_25K);
+});
+
 test('CTCSS index matches ToneHelper (0 = none, 100.0 Hz is 100)', () => {
   assert.strictEqual(P.ctcssIndex('None'), 0);
   assert.strictEqual(P.ctcssIndex(0), 0);
@@ -252,6 +286,50 @@ test('eight seconds of silence resets the ESP32 without a new port', async () =>
   assert.strictEqual(port.isOpen, true);
   port.emit('data', helloFrame(145.5));
   assert.strictEqual(client.connected, true);
+  await client.disconnect();
+});
+
+test('a tune keeps the radio bandwidth and a rejected group command is reported', async () => {
+  const port = fakePort();
+  const { client } = clientOn(port);
+  const rejected = [];
+  const freqs = [];
+  client.on('tune-rejected', (info) => rejected.push(info));
+  client.on('frequency', (hz) => freqs.push(hz));
+  client.connect({ path: '/dev/ttyUSB0', band: 'uhf', offset: 'simplex' });
+  await flush();
+  const hello = P.encodeVendorFrame(P.CMD_HELLO, P.packHello({
+    ver: 17, radioModuleStatus: P.RADIO_FOUND, windowSize: 2048,
+    rfModuleType: P.RF_SA818_UHF, minMhz: 400, maxMhz: 480, features: 1,
+  }, {
+    appliedSequence: 2, memoryId: -1, flags: 0, bw: P.BW_12K5,
+    freqTx: 441.45, freqRx: 441.45, ctcssTx: 0, squelch: 4, ctcssRx: 0,
+    radioModuleStatus: P.RADIO_FOUND, mode: P.MODE_RX, lastError: 0, latestRssi: 0,
+  }));
+  port.emit('data', hello);
+  const seeded = lastDesired(port);
+  assert.strictEqual(seeded.bw, P.BW_12K5, 'do not force 25 kHz over the radio');
+  assert.strictEqual(seeded.squelch, 4);
+  assert.ok(Math.abs(seeded.freqRx - 441.45) < 0.001);
+  assert.strictEqual(client.tune(446e6, 'FM'), true);
+  const asked = lastDesired(port);
+  assert.strictEqual(asked.bw, P.BW_12K5);
+  assert.ok(Math.abs(asked.freqRx - 446) < 0.001, 'asked for 446');
+  assert.strictEqual(P.sa818GroupCommand({
+    bw: asked.bw, freqTx: asked.freqTx, freqRx: asked.freqRx,
+    ctcssTx: asked.ctcssTx, squelch: asked.squelch, ctcssRx: asked.ctcssRx,
+  }), 'AT+DMOSETGROUP=0,446.0000,446.0000,0000,4,0000\r\n');
+  // The dial must not pretend the tune landed.
+  assert.ok(freqs.every((hz) => hz < 442e6), 'UI still shows the radio, not 446');
+  const state = P.encodeVendorFrame(P.CMD_DEVICE_STATE, P.packDeviceState({
+    appliedSequence: asked.sequence, memoryId: -1, flags: asked.flags, bw: P.BW_12K5,
+    freqTx: 441.45, freqRx: 441.45, ctcssTx: 0, squelch: 4, ctcssRx: 0,
+    radioModuleStatus: P.RADIO_FOUND, mode: P.MODE_RX, lastError: P.ERROR_RADIO_CONFIG, latestRssi: 0,
+  }));
+  port.emit('data', state);
+  assert.strictEqual(rejected.length, 1);
+  assert.ok(/rejected 446\.0000/.test(rejected[0].message));
+  assert.ok(/441\.4500/.test(rejected[0].message));
   await client.disconnect();
 });
 

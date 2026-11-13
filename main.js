@@ -9105,6 +9105,13 @@ async function connectCat() {
     cat.on('mode', catModeHandler);
     cat.on('smeter', sendCatSmeter);
     cat.on('audio', (pcm) => handleKv4pRxPcm(pcm));
+    cat.on('tune-rejected', (info) => {
+      const msg = info && info.message ? info.message : 'The SA818 rejected that frequency.';
+      sendCatLog('[kv4p] ' + msg);
+      if (win && !win.isDestroyed()) win.webContents.send('app-notice', { message: msg, warn: true, duration: 14000 });
+      if (vfoPopoutWin && !vfoPopoutWin.isDestroyed()) vfoPopoutWin.webContents.send('tune-blocked', msg);
+      try { if (remoteServer && remoteServer.running) remoteServer.sendToClient({ type: 'tune-blocked', reason: msg }); } catch { /* no phone */ }
+    });
     cat.on('tx-timeout', ({ seconds }) => {
       const msg = `Transmit stopped after ${seconds} seconds so the kv4p cannot stay keyed.`;
       sendCatLog('[kv4p] ' + msg);

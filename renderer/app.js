@@ -2761,7 +2761,7 @@ async function loadKv4pPorts(savedTarget) {
   const khz = document.getElementById('set-kv4p-offset-khz');
   if (khz) khz.value = String(savedTarget && savedTarget.offsetKhz != null ? Math.abs(savedTarget.offsetKhz) : 600);
   const bw = document.getElementById('set-kv4p-bw');
-  if (bw) bw.value = savedTarget && savedTarget.bandwidth === '12.5' ? '12.5' : '25';
+  if (bw) bw.value = savedTarget && savedTarget.bandwidth === '25' ? '25' : '12.5';
   const high = document.getElementById('set-kv4p-high');
   if (high) high.checked = !savedTarget || savedTarget.highPower !== false;
   const pre = document.getElementById('set-kv4p-pre');
