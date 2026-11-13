@@ -577,7 +577,7 @@ Location is chosen in this order: a latitude and longitude you type, the phone's
 
 **Scan** is receive-only. It dwells, holds while the kv4p squelch is open, and moves on after the signal drops. PTT stops it immediately. Squelch 0 cannot be used for this; set squelch to 1 or higher.
 
-RepeaterBook's export API needs an approved app and your own token (`rbuapp_…`, from your RepeaterBook account). Paste it in the token box. It stays on this computer. Until that approval exists, use **Import CHIRP CSV** on the same tab. Data courtesy of RepeaterBook.com.
+RepeaterBook's export API needs an approved app, your own token (`rbuapp_…`), and a contact email. The email is Settings → RepeaterBook contact email. It is not filled in for you. The User-Agent is `POTACAT-atleyllc/1 (+https://github.com/atleyllc/POTACAT; that address)`. With either the email or the token missing, the lookup does not run. The state box starts on “From location” and does not pick a state. Use **Import CHIRP CSV** on the same tab until RepeaterBook has approved this fork. Data courtesy of RepeaterBook.com.
 
 ## Scan Mode
 

@@ -1261,8 +1261,10 @@
             <button type="button" id="rb-manual-clear" class="chn-btn">Clear override</button>
             <label>RepeaterBook token <input id="rb-token" type="password" autocomplete="off" placeholder="rbuapp_…" style="width:160px"></label>
             <button type="button" id="rb-token-save" class="chn-btn">Save token</button>
+            <label>Contact email <input id="rb-contact" type="email" autocomplete="off" placeholder="Settings → RepeaterBook contact email" style="width:240px"></label>
+            <button type="button" id="rb-contact-save" class="chn-btn">Save email</button>
           </div>
-          <p id="rb-help" class="rb-help">Data courtesy of <a href="https://www.repeaterbook.com/" target="_blank" rel="noopener">RepeaterBook.com</a>. The export API requires an approved app and your own <code>rbuapp_</code> token (RepeaterBook → API Applications). POTACAT sends <code id="rb-ua"></code>. Until that approval is in place, import a CHIRP CSV below. A search does not transmit. Scan is receive-only and stops the moment you press PTT. Set the kv4p squelch to 1 or higher or scan cannot hear a carrier.</p>
+          <p id="rb-help" class="rb-help">Data courtesy of <a href="https://www.repeaterbook.com/" target="_blank" rel="noopener">RepeaterBook.com</a>. This fork sends <code id="rb-ua"></code>. Put your address in Settings → RepeaterBook contact email, and your own <code>rbuapp_</code> token here. Either one missing and the lookup does not run. Import a CHIRP CSV below in the meantime. The state box starts on “From location”; it does not pick a state for you. A search does not transmit. Scan is receive-only and stops the moment you press PTT. Set the kv4p squelch to 1 or higher or scan cannot hear a carrier.</p>
           <div id="rb-list" class="rb-list"></div>
         </div>
         <div class="chn-bar">
@@ -1733,6 +1735,8 @@
         <span class="help-text" id="home-county-status"></span>
       </div>
       <span class="help-text" style="display:block;margin-bottom:6px;">Written on contacts made from your home grid square and sent to LoTW and your other loggers. Contacts with another grid get no county rather than the wrong one. On an activation, POTACAT uses the county you choose for that park.</span>
+      <label>RepeaterBook contact email: <input type="email" id="set-repeaterbook-contact" autocomplete="off" placeholder="you@example.com" style="width:220px;"></label>
+      <span class="help-text" style="display:block;margin-bottom:6px;">Sent only to RepeaterBook, inside the User-Agent <code>POTACAT-atleyllc/1 (+https://github.com/atleyllc/POTACAT; this address)</code>. Left empty, the repeater lookup does not run. The state list does not pick a state for you.</span>
       <label class="checkbox-label"><input type="checkbox" id="set-enable-qrz"> QRZ.com Callsign Lookup</label>
       <div id="qrz-config" class="radio-sub hidden">
         <span class="help-text" style="font-size:12px;">Looks up operator first names from QRZ.com and shows them in the Operator column. Uses the QRZ XML API — a free QRZ account works.</span>

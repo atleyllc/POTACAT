@@ -19,6 +19,7 @@ function test(name, fn) {
   catch (e) { failed++; console.log('  FAIL ' + name + '\n    ' + (e && e.stack || e)); }
 }
 const FIXTURE = {
+  // Recorded public rows (CHIRP 10962, a Florida machine). Not a default state.
   count: 5,
   results: [
     { 'State ID': '12', 'Rptr ID': '9936', Frequency: '444.20000', 'Input Freq': '449.20000', PL: '100.0', TSQ: '100.0', 'Nearest City': 'Navarre', County: 'Santa Rosa', State: 'Florida', Lat: '30.43219948', Long: '-86.87329865', Callsign: 'K4ECR', Use: 'OPEN', 'Operational Status': 'On-air', 'FM Analog': 'Yes' },
@@ -30,6 +31,20 @@ const FIXTURE = {
 };
 
 console.log('=== parse, offset, tone ===');
+test('the User-Agent names this fork and is empty without a contact address', () => {
+  assert.strictEqual(RB.userAgent(''), '');
+  assert.strictEqual(RB.userAgent('not-an-email'), '');
+  assert.strictEqual(
+    RB.userAgent('operator@example.com'),
+    'POTACAT-atleyllc/1 (+https://github.com/atleyllc/POTACAT; operator@example.com)',
+  );
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'repeaterbook.js'), 'utf8');
+  assert.ok(!/casey@/.test(src) && !/potacat\.com/.test(src), 'no upstream contact is built in');
+  assert.strictEqual(RB.stateIdFromName(''), '');
+  assert.notStrictEqual(RB.stateIdFromName('Tennessee'), '12');
+  assert.strictEqual(RB.stateIdFromName('TN'), '47');
+});
+
 test('export URL stays on www.repeaterbook.com and never carries a token', () => {
   const url = RB.exportUrl({ stateId: '12', mode: 'analog', county: 'Santa Rosa' });
   assert.strictEqual(url, 'https://www.repeaterbook.com/api/export.php?state_id=12&county=Santa+Rosa&mode=analog');
@@ -176,25 +191,41 @@ test('a rate limit is remembered and a fresh cache is reused', () => {
       tune() { throw new Error('should not tune'); },
     });
     svc.setPhone({ lat: 30.43, lon: -86.87, accuracyM: 10 });
+    const noContact = await svc.loadNearest({ stateId: '12' });
+    assert.strictEqual(noContact.ok, false);
+    assert.strictEqual(calls, 0);
+    assert.ok(/contact email/i.test(noContact.error));
+    settings.repeaterbookContact = 'operator@example.com';
     const denied = await svc.loadNearest({ stateId: '12' });
     assert.strictEqual(denied.ok, false);
     assert.strictEqual(calls, 0);
     assert.ok(/rbuapp_/.test(denied.error));
     settings.repeaterbookToken = 'rbuapp_personaltoken';
+    settings.repeaterbookContact = 'operator@example.com';
     const tunes = [];
+    let rbCalls = 0;
     const svc2 = Svc.create({
       getSettings: () => settings, saveSettings() {}, channelsApi: Channels, cacheDir: () => dir,
       reach: () => [[400e6, 480e6]], bands: () => ['70cm'],
       transport(url, headers) {
+        const host = new URL(url).hostname;
+        if (host === 'ipwho.is') return Promise.resolve({ status: 200, body: '{"success":false}' });
+        rbCalls++;
         calls++;
         assert.ok(!url.includes('rbuapp'));
         assert.strictEqual(headers['X-RB-App-Token'], 'rbuapp_personaltoken');
-        assert.strictEqual(headers['User-Agent'], RB.USER_AGENT);
-        assert.strictEqual(new URL(url).hostname, 'www.repeaterbook.com');
+        assert.strictEqual(headers['User-Agent'], 'POTACAT-atleyllc/1 (+https://github.com/atleyllc/POTACAT; operator@example.com)');
+        assert.strictEqual(host, 'www.repeaterbook.com');
         return Promise.resolve({ status: 200, body: JSON.stringify(FIXTURE) });
       },
       tune(plan) { tunes.push(plan); },
     });
+    settings.grid = '';
+    const noPlace = await svc2.loadNearest({});
+    assert.strictEqual(noPlace.ok, false);
+    assert.notStrictEqual(noPlace.stateId, '12');
+    assert.strictEqual(rbCalls, 0, 'no state and no fix means no RepeaterBook request');
+    settings.grid = 'FN20';
     svc2.setPhone({ lat: 30.4322, lon: -86.8733, accuracyM: 15 });
     const loaded = await svc2.loadNearest({ stateId: '12', count: 10 });
     assert.strictEqual(loaded.ok, true);
@@ -207,6 +238,7 @@ test('a rate limit is remembered and a fresh cache is reused', () => {
     assert.strictEqual(tunes.length, 1);
     const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'repeater-service.js'), 'utf8');
     assert.ok(!/setTransmit\(/.test(src));
+    assert.ok(!/casey@/.test(src) && !/potacat\.com/.test(src));
     passed++;
     console.log('  ok  service: receive-only tune, token stays in the header');
   } catch (e) {

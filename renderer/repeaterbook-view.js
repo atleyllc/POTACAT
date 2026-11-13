@@ -129,6 +129,15 @@
       api.repeaterbookCommand({ op: 'manual', lat: (el('rb-lat') || {}).value, lon: (el('rb-lon') || {}).value }).then(paint);
     });
     on('rb-manual-clear', () => api.repeaterbookCommand({ op: 'manual', lat: '', lon: '' }).then(paint));
+    on('rb-contact-save', () => {
+      const email = (el('rb-contact') || {}).value || '';
+      api.repeaterbookCommand({ op: 'contact', email }).then((r) => {
+        paint(r);
+        const settingsBox = document.getElementById('set-repeaterbook-contact');
+        if (settingsBox && r && r.ok !== false) settingsBox.value = email.trim();
+        if (r && r.error && el('rb-place')) el('rb-place').textContent = r.error;
+      });
+    });
     on('rb-token-save', () => {
       const token = (el('rb-token') || {}).value || '';
       api.repeaterbookCommand({ op: 'token', token }).then((r) => {

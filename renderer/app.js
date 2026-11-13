@@ -17504,6 +17504,8 @@ async function openSettingsDialog(tab) {
   if (tab) _openSettingsTab = tab;
   const s = await window.api.getSettings();
   setGrid.value = s.grid || '';
+  const rbContact = document.getElementById('set-repeaterbook-contact');
+  if (rbContact) rbContact.value = s.repeaterbookContact || '';
   // The owner already has the ECHOCAT app: no download badges.
   { const dl = document.getElementById('settings-echocat-download'); if (dl) dl.classList.toggle('hidden', s.echocatAppConnected === true); }
   homeCountyLoad(s);
@@ -18603,6 +18605,7 @@ settingsSave.addEventListener('click', async () => {
     // alone; the CAT pill's None is the explicit disconnect.
     ...(rigTarget ? { catTarget: rigTarget } : {}),
     grid: setGrid.value.trim() || 'FN20jb',
+    repeaterbookContact: ((document.getElementById('set-repeaterbook-contact') || {}).value || '').trim(),
     homeState: (document.getElementById('set-home-state') || {}).value || '',
     homeCounty: (document.getElementById('set-home-county') || {}).value || '',
     distUnit: setDistUnit.value,
