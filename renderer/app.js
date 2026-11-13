@@ -2417,6 +2417,7 @@ const AUDIO_SOURCE_HELP = {
   flex: 'Flex Direct streams receive and transmit audio straight to the radio (VITA-49) — no DAX program and no audio device setup. Pick Local audio device only if you deliberately run the DAX program.',
   'yaesu-lan': "Yaesu LAN audio decodes the radio's receive audio over the SCU-LAN10 for JTCAT and SSTV. It is receive only for now: POTACAT will not key the radio with this source, because the carrier would be silent. To transmit from POTACAT, pick the local audio device (the radio's USB sound card on this computer).",
   'icom-network': "Icom Network audio uses the radio's RS-BA1 UDP stream for JTCAT/SSTV receive audio and sends JTCAT FT8/FT4 plus SSTV transmit audio directly over the network — no soundcard needed.",
+  kv4p: 'The kv4p HT carries receive and transmit voice on its USB serial port. No sound card. The phone hears the radio and its microphone keys it.',
 };
 function rebuildAudioSourceOptions() {
   if (!setAudioSource || !window.RigFamily) return;
@@ -2468,6 +2469,8 @@ function updateRadioSubPanels() {
   if (dxlabCommanderConfig) dxlabCommanderConfig.classList.toggle('hidden', type !== 'dxlab-commander');
   const nocatConfig = document.getElementById('nocat-config');
   if (nocatConfig) nocatConfig.classList.toggle('hidden', type !== 'nocat');
+  const kv4pConfig = document.getElementById('kv4p-config');
+  if (kv4pConfig) kv4pConfig.classList.toggle('hidden', type !== 'kv4p');
   // Voice in DATA mode runs in the rig controller: serial, Icom, Hamlib and flrig links.
   const voiceAsDataRow = document.getElementById('rig-voice-as-data');
   if (voiceAsDataRow) voiceAsDataRow.classList.toggle('hidden', !['serialcat', 'icom', 'civ-tcp', 'icom-network', 'hamlib', 'rigctldnet', 'flrig', 'dxlab-commander', 'yaesu-lan'].includes(type));
@@ -2483,6 +2486,10 @@ function updateRadioSubPanels() {
   }
   if (type === 'icom' && !icomPortsLoaded) {
     loadIcomPorts();
+  }
+  if (type === 'kv4p' && !kv4pPortsLoaded) {
+    kv4pPortsLoaded = true;
+    loadKv4pPorts(null);
   }
   if (type === 'hamlib' && !hamlibFieldsLoaded) {
     hamlibFieldsLoaded = true;
@@ -2531,6 +2538,10 @@ async function populateRadioSection(currentTarget) {
     setK4networkHost.value = currentTarget.host || '';
     setK4networkPort.value = currentTarget.port || 9205;
     setK4networkPassword.value = currentTarget.password || '';
+  } else if (currentTarget.type === 'kv4p') {
+    setRadioType('kv4p');
+    kv4pPortsLoaded = true;
+    await loadKv4pPorts(currentTarget);
   } else if (currentTarget.type === 'none') {
     setRadioType('nocat');
     { const ps = document.getElementById('set-nocat-ptt'); if (ps) ps.value = currentTarget.ptt === 'cm108' ? 'cm108' : currentTarget.ptt === 'serial' ? 'serial' : 'vox'; }
@@ -2713,6 +2724,121 @@ async function loadIcomPorts(savedTarget) {
 }
 
 let serialcatPortsLoaded = false;
+let kv4pPortsLoaded = false;
+
+function fillKv4pToneSelect(selected) {
+  const sel = document.getElementById('set-kv4p-ctcss');
+  if (!sel || !window.Kv4pTones) return;
+  if (!sel.dataset.filled) {
+    sel.innerHTML = '';
+    window.Kv4pTones.CTCSS_HZ.forEach((hz, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = i === 0 ? 'None' : window.Kv4pTones.label(i) + ' Hz';
+      sel.appendChild(opt);
+    });
+    sel.dataset.filled = '1';
+  }
+  sel.value = String(selected || 0);
+}
+
+function kv4pOffsetKhz(target) {
+  const mag = Math.abs(Number(target && target.offsetKhz) || 0);
+  if (!target || target.offset === 'simplex' || !target.offset) return 0;
+  return target.offset === 'minus' ? -mag : mag;
+}
+
+async function loadKv4pPorts(savedTarget) {
+  fillKv4pToneSelect(savedTarget && savedTarget.ctcss);
+  const ports = await window.api.listPorts();
+  fillPortSelect(document.getElementById('set-kv4p-port'), document.getElementById('set-kv4p-port-manual'), ports, savedTarget && savedTarget.path);
+  const band = document.getElementById('set-kv4p-band');
+  if (band) band.value = (savedTarget && (savedTarget.band === 'vhf' || savedTarget.band === 'uhf')) ? savedTarget.band : 'auto';
+  const sq = document.getElementById('set-kv4p-squelch');
+  if (sq) sq.value = String(savedTarget && savedTarget.squelch != null ? savedTarget.squelch : 1);
+  const off = document.getElementById('set-kv4p-offset');
+  if (off) off.value = savedTarget && (savedTarget.offset === 'minus' || savedTarget.offset === 'plus') ? savedTarget.offset : 'simplex';
+  const khz = document.getElementById('set-kv4p-offset-khz');
+  if (khz) khz.value = String(savedTarget && savedTarget.offsetKhz != null ? Math.abs(savedTarget.offsetKhz) : 600);
+  const bw = document.getElementById('set-kv4p-bw');
+  if (bw) bw.value = savedTarget && savedTarget.bandwidth === '25' ? '25' : '12.5';
+  const high = document.getElementById('set-kv4p-high');
+  if (high) high.checked = !savedTarget || savedTarget.highPower !== false;
+  const pre = document.getElementById('set-kv4p-pre');
+  if (pre) pre.checked = !!(savedTarget && savedTarget.preEmphasis);
+  const to = document.getElementById('set-kv4p-tx-timeout');
+  if (to) to.value = String(savedTarget && savedTarget.txTimeoutSec ? savedTarget.txTimeoutSec : 180);
+  refreshKv4pRepeaters();
+  kv4pPortsLoaded = true;
+}
+
+async function refreshKv4pRepeaters() {
+  const box = document.getElementById('kv4p-repeater-list');
+  if (!box || !window.api.channelsGet) return;
+  let saved;
+  try { saved = await window.api.channelsGet(); } catch { return; }
+  const list = (saved && saved.list || []).filter((c) => c.group === 'Repeaters' || c.note === 'kv4p');
+  box.textContent = '';
+  if (!list.length) { box.textContent = 'No saved repeaters yet.'; return; }
+  for (const c of list) {
+    const row = document.createElement('div');
+    row.style.marginTop = '2px';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Tune';
+    btn.addEventListener('click', () => window.api.channelGo && window.api.channelGo(c.id));
+    row.appendChild(btn);
+    row.appendChild(document.createTextNode(' ' + c.name + '  ' + (c.khz / 1000).toFixed(4) + ' MHz  ' + (window.Channels ? window.Channels.formatOffset(c.offsetKhz) : (c.offsetKhz || '')) + (c.tone ? '  ' + c.tone : '')));
+    box.appendChild(row);
+  }
+}
+
+document.getElementById('kv4p-save-repeater')?.addEventListener('click', async () => {
+  const status = document.getElementById('kv4p-repeater-status');
+  const mhz = parseFloat(document.getElementById('set-kv4p-repeater-mhz').value);
+  if (!(mhz > 0)) { if (status) status.textContent = 'Enter the receive frequency in MHz'; return; }
+  const target = buildCatTargetFromForm();
+  const toneSel = document.getElementById('set-kv4p-ctcss');
+  const tone = toneSel && toneSel.value !== '0' && window.Kv4pTones ? window.Kv4pTones.label(toneSel.value) : '';
+  const name = (document.getElementById('set-kv4p-repeater-name').value || '').trim() || (mhz.toFixed(4) + ' MHz');
+  try {
+    const saved = await window.api.channelsGet();
+    const next = window.Channels.upsert(saved, {
+      name, khz: Math.round(mhz * 1000 * 1000) / 1000, mode: 'FM',
+      offsetKhz: kv4pOffsetKhz(target), tone, group: 'Repeaters', note: 'kv4p', src: 'user',
+    });
+    await window.api.channelsSave(next);
+    if (status) status.textContent = 'Saved ' + name;
+    refreshKv4pRepeaters();
+  } catch (err) {
+    if (status) status.textContent = err && err.message ? err.message : String(err);
+  }
+});
+
+document.getElementById('kv4p-test-btn')?.addEventListener('click', async () => {
+  const resultEl = document.getElementById('kv4p-test-result');
+  const btn = document.getElementById('kv4p-test-btn');
+  const t = buildCatTargetFromForm();
+  if (!t || !t.path) { resultEl.textContent = 'Choose the serial port first'; resultEl.className = 'hamlib-test-fail'; return; }
+  btn.disabled = true;
+  resultEl.textContent = 'Waiting for the radio (up to 35 seconds)...';
+  resultEl.className = '';
+  try {
+    const r = await window.api.testKv4p(t);
+    if (r && r.success) {
+      resultEl.textContent = r.message || 'Connected';
+      resultEl.className = 'hamlib-test-success';
+    } else {
+      resultEl.textContent = 'Failed: ' + ((r && r.error) || 'no answer');
+      resultEl.className = 'hamlib-test-fail';
+    }
+  } catch (err) {
+    resultEl.textContent = 'Failed: ' + (err && err.message ? err.message : err);
+    resultEl.className = 'hamlib-test-fail';
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // Transmit (PTT) on a serial CAT radio: over CAT, a line of the CAT port, or
 // the audio interface. Saved as catTarget.ptt, absent for "over CAT".
@@ -2810,6 +2936,7 @@ if (rigModelSelect) rigModelSelect.addEventListener('change', async () => {
   if (!brand) return;
   const groupOf = rigModelData.find((g) => g.brand === brand);
   const noCat = !!(groupOf && Array.isArray(groupOf.noCat) && groupOf.noCat.includes(modelName));
+  const kv4pModel = !!(groupOf && Array.isArray(groupOf.kv4p) && groupOf.kv4p.includes(modelName));
   const hamlib = groupOf && groupOf.hamlib && groupOf.hamlib[modelName];
   if (hamlib) {
     // Xiegu G90: Other Rig (Hamlib) with its Hamlib model and baud rate.
@@ -2824,7 +2951,8 @@ if (rigModelSelect) rigModelSelect.addEventListener('change', async () => {
   // rigctld) keeps that connection: the model picked here only supplies bands
   // and limits.
   const shared = ['flrig', 'dxlab-commander', 'rigctldnet'].includes(getSelectedRadioType());
-  if (noCat) setRadioType('nocat');           // Pebble HF and friends: nothing to connect to
+  if (kv4pModel) setRadioType('kv4p');
+  else if (noCat) setRadioType('nocat');           // Pebble HF and friends: nothing to connect to
   else if (shared) { /* keep flrig / DXLab Commander / rigctld Network */ }
   else if (brand === 'Yaesu' && getSelectedRadioType() === 'yaesu-lan') { /* keep the SCU-LAN10 connection */ }
   else if (brand === 'FlexRadio') setRadioType('flex');
@@ -3080,6 +3208,10 @@ function describeRigTarget(target) {
   if (target.type === 'k4-network') {
     return `Elecraft K4 network ${target.host || '127.0.0.1'}:${target.port || 9205}`;
   }
+  if (target.type === 'kv4p') {
+    const band = target.band === 'uhf' ? '70 cm' : target.band === 'vhf' ? '2 m' : 'band from the radio';
+    return `kv4p HT on ${shortSerialPath(target.path)} (${band}, FM)`;
+  }
   if (target.type === 'rigctld') {
     const comPort = target.serialPort || '?';
     const rPort = target.rigctldPort && target.rigctldPort !== 4532 ? ` (port ${target.rigctldPort})` : '';
@@ -3300,6 +3432,23 @@ function buildCatTargetFromForm() {
       port: parseInt(setDxlabCommanderPort.value, 10) || window.CommanderSequences.DEFAULT_PORT,
       decimal: setDxlabCommanderDecimal.value === ',' ? ',' : '.',
       sequences: window.CommanderSequences.cleanSequences(typed),
+    };
+  } else if (radioType === 'kv4p') {
+    const manual = (document.getElementById('set-kv4p-port-manual').value || '').trim();
+    const ctcss = parseInt(document.getElementById('set-kv4p-ctcss').value, 10);
+    const timeout = parseInt(document.getElementById('set-kv4p-tx-timeout').value, 10);
+    return {
+      type: 'kv4p',
+      path: manual || document.getElementById('set-kv4p-port').value,
+      band: document.getElementById('set-kv4p-band').value || 'auto',
+      squelch: Math.max(0, Math.min(8, parseInt(document.getElementById('set-kv4p-squelch').value, 10) || 0)),
+      ctcss: Number.isFinite(ctcss) ? ctcss : 0,
+      offset: document.getElementById('set-kv4p-offset').value || 'simplex',
+      offsetKhz: Math.max(0, parseInt(document.getElementById('set-kv4p-offset-khz').value, 10) || 0),
+      bandwidth: document.getElementById('set-kv4p-bw').value === '12.5' ? '12.5' : '25',
+      highPower: document.getElementById('set-kv4p-high').checked,
+      preEmphasis: document.getElementById('set-kv4p-pre').checked,
+      txTimeoutSec: Number.isFinite(timeout) && timeout > 0 ? timeout : 180,
     };
   } else if (radioType === 'nocat') {
     // No CAT control: VOX-keyed kits (Pebble HF, uSDX builds), or a handheld
@@ -3620,7 +3769,8 @@ async function saveRigEditor() {
   const name = setRigName.value.trim() || 'Unnamed Rig';
   const rigCatLabelVal = (document.getElementById('set-rig-cat-label')?.value || '').trim().toUpperCase().slice(0, 4);
   const catTarget = buildCatTargetFromForm();
-  const model = rigModelSelect ? rigModelSelect.value || null : null;
+  let model = rigModelSelect ? rigModelSelect.value || null : null;
+  if (catTarget && catTarget.type === 'kv4p' && !model) model = 'kv4p HT';
 
   // The SCU-LAN10 spec covers three radios; anything else has no SCU-LAN10.
   if (catTarget && catTarget.type === 'yaesu-lan' && !YAESU_LAN_MODELS.includes(model || '')) {
@@ -9781,7 +9931,7 @@ async function populateRigAudioDevices(restoreIn, restoreOut) {
 // configure here = nothing to break.
 function syncRigAudioDeviceBypass() {
   const src = setAudioSource ? setAudioSource.value : 'dax';
-  const bypassed = (src === 'smartsdr' || src === 'icom-network' || src === 'yaesu-lan');
+  const bypassed = (src === 'smartsdr' || src === 'icom-network' || src === 'yaesu-lan' || src === 'kv4p');
   const hint = document.getElementById('rig-audio-devices-hint');
   const note = document.getElementById('rig-audio-devices-bypass');
   const inLabel = rigRemoteAudioInput ? rigRemoteAudioInput.closest('label') : null;
@@ -26545,6 +26695,7 @@ const welcomeCallsignInput = document.getElementById('welcome-callsign');
 // --- Welcome rig editor ---
 let welcomeRig = null; // rig configured in welcome dialog
 let welcomeHamlibLoaded = false;
+let welcomeKv4pLoaded = false;
 let welcomeSerialcatLoaded = false;
 let welcomeIcomLoaded = false;
 let welcomeAllRigOptions = [];
@@ -26567,6 +26718,12 @@ function updateWelcomeRadioSubPanels() {
   document.getElementById('welcome-dxlab-commander-config').classList.toggle('hidden', type !== 'dxlab-commander');
   const wNocat = document.getElementById('welcome-nocat-config');
   if (wNocat) wNocat.classList.toggle('hidden', type !== 'nocat');
+  const wKv4p = document.getElementById('welcome-kv4p-config');
+  if (wKv4p) wKv4p.classList.toggle('hidden', type !== 'kv4p');
+  if (type === 'kv4p' && !welcomeKv4pLoaded) {
+    welcomeKv4pLoaded = true;
+    loadWelcomeKv4pPorts();
+  }
   if (type === 'serialcat' && !welcomeSerialcatLoaded) {
     welcomeSerialcatLoaded = true;
     loadWelcomeSerialcatPorts();
@@ -26578,6 +26735,19 @@ function updateWelcomeRadioSubPanels() {
   if (type === 'hamlib' && !welcomeHamlibLoaded) {
     welcomeHamlibLoaded = true;
     loadWelcomeHamlibFields();
+  }
+}
+
+async function loadWelcomeKv4pPorts() {
+  const ports = await window.api.listPorts();
+  const sel = document.getElementById('welcome-kv4p-port');
+  if (!sel) return;
+  sel.innerHTML = '';
+  for (const p of ports) {
+    const opt = document.createElement('option');
+    opt.value = p.path;
+    opt.textContent = `${p.path} — ${p.friendlyName}`;
+    sel.appendChild(opt);
   }
 }
 
@@ -26679,6 +26849,15 @@ function buildWelcomeCatTarget() {
       host: document.getElementById('welcome-dxlab-commander-host').value.trim() || '127.0.0.1',
       port: parseInt(document.getElementById('welcome-dxlab-commander-port').value, 10) || window.CommanderSequences.DEFAULT_PORT,
     };
+  } else if (type === 'kv4p') {
+    const manual = (document.getElementById('welcome-kv4p-port-manual').value || '').trim();
+    return {
+      type: 'kv4p',
+      path: manual || document.getElementById('welcome-kv4p-port').value,
+      band: document.getElementById('welcome-kv4p-band').value || 'auto',
+      squelch: 1, ctcss: 0, offset: 'simplex', offsetKhz: 600,
+      bandwidth: '25', highPower: true, txTimeoutSec: 180,
+    };
   } else if (type === 'nocat') {
     return { type: 'none' }; // No CAT control (VOX) — see buildCatTargetFromForm
   }
@@ -26740,6 +26919,7 @@ document.getElementById('welcome-rig-save-btn').addEventListener('click', () => 
   // Keep POTACAT's audio/tune slice in sync with the chosen Flex CAT shim port
   // (5002→A …) so a non-A pick doesn't leave audio on slice A while CAT targets
   // another slice.
+  if (catTarget && catTarget.type === 'kv4p') welcomeRig.model = 'kv4p HT';
   if (catTarget && catTarget.type === 'tcp' && catTarget.port >= 5002 && catTarget.port <= 5005) {
     welcomeRig.flexSlice = catTarget.port - 5002;
   }

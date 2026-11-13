@@ -535,6 +535,39 @@ POTACAT  ←→  COM19 ──(COM0COM)── COM18  ←→  Win4Icom  ←→  Ra
 
 ---
 
+## kv4p HT
+
+**Best for:** the open-source kv4p handheld (ESP32 + SA818), FM on 2 m or 70 cm, including leaving it plugged into an always-on Linux machine and talking from the phone.
+
+POTACAT speaks the radio's USB protocol directly (firmware v2.0.0.1 or newer). There is no sound card: receive audio, the microphone, and PTT all use the serial port. The phone uses the same path.
+
+Limits, honestly: FM only, one band per unit, 1 watt. The firmware reports VHF or UHF. Transmit is kept inside 144–148 MHz or 420–450 MHz. A key-down that is never released is forced back to receive after 3 minutes (changeable, 15 seconds to 10 minutes). This driver has not been confirmed on a radio yet.
+
+### Setup
+
+1. Flash firmware v2.0.0.1 or newer from [kv4p.com](https://kv4p.com/firmware.html).
+2. Settings → My Rigs → Add Rig. Radio Model: **kv4p HT**. Connection: **kv4p HT**.
+3. Pick the serial port.
+   - Mac: `/dev/cu.usbserial-1110` (the `cu.` device).
+   - Linux: `/dev/ttyUSB0`, `/dev/ttyACM0`, or a stable `/dev/serial/by-id/…` link.
+4. On Linux the port is not world-writable.
+   - Arch Linux: `sudo usermod -aG uucp $USER`
+   - Debian and Ubuntu: `sudo usermod -aG dialout $USER`
+   - Log out and back in, then unplug the radio and plug it back in.
+5. Save. POTACAT resets the ESP32 on connect (the firmware sends its hello only at boot) and opens the port again if the cable is pulled or the chip reboots.
+6. Repeater channels: Directory → Channels, or **Save repeater** on the kv4p settings (name, receive frequency, offset, CTCSS). The phone's Channels tab tunes them, offset and tone included.
+7. Hear the radio on this computer from the VFO window's audio monitor. The phone hears it as soon as the ECHOCAT audio bridge is up.
+
+From a terminal, without starting the app:
+
+```
+node scripts/kv4p-probe.js --port /dev/ttyUSB0 --freq 146.52 --listen 5
+```
+
+That tunes receive and counts audio frames. It does not transmit unless you add `--tx`.
+
+---
+
 ## General Tips
 
 ### Only One Program Per COM Port

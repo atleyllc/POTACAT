@@ -345,6 +345,7 @@ const { normalizeSerialPath, normalizeSettingsSerialPaths } = require('./lib/ser
 const { TcpTransport, SerialTransport, calloutTwin } = require('./lib/transport');
 const { RsBa1Transport } = require('./lib/rsba1-transport');
 const { Sculan10Transport } = require('./lib/sculan10-transport');
+const { Kv4pClient, probe: probeKv4p } = require('./lib/kv4p-client');
 const Sculan10 = require('./lib/sculan10-protocol');
 const { KenwoodCodec } = require('./lib/codecs/kenwood-codec');
 const { YaesuLegacyCodec } = require('./lib/codecs/yaesu-legacy-codec');
@@ -3275,6 +3276,7 @@ function detectRigType() {
   if (!target) return 'unknown';
   if (target.type === 'icom' || target.type === 'civ-tcp' || target.type === 'icom-network') return 'icom';
   if (target.type === 'yaesu-lan') return 'yaesu'; // SCU-LAN10: Yaesu CAT ASCII over UDP
+  if (target.type === 'kv4p') return 'kv4p';
   if (target.type === 'rigctld' || target.type === 'rigctldnet') return 'rigctld';
   if (target.type === 'flrig') return 'flrig';
   if (target.type === 'dxlab-commander') return 'commander';
@@ -9085,6 +9087,40 @@ async function connectCat() {
 	        }
 	      }, 10_000);
 	    }
+
+  } else if (target.type === 'kv4p') {
+    // kv4p HT: USB serial, FM only, Opus audio on the same port. The client
+    // resets the ESP32 (HELLO is sent once at boot), reopens the port if it
+    // drops, and unkeys itself after txTimeoutSec.
+    if (settings.audioSource !== 'kv4p') {
+      settings.audioSource = 'kv4p';
+      const activeRig = (settings.rigs || []).find((r) => r && r.id === settings.activeRigId);
+      if (activeRig) activeRig.audioSource = 'kv4p';
+    }
+    cat = new Kv4pClient();
+    cat._debug = true;
+    cat.on('log', sendCatLog);
+    cat.on('status', sendCatStatus);
+    cat.on('frequency', catFrequencyHandler);
+    cat.on('mode', catModeHandler);
+    cat.on('smeter', sendCatSmeter);
+    cat.on('audio', (pcm) => handleKv4pRxPcm(pcm));
+    cat.on('tune-rejected', (info) => {
+      const msg = info && info.message ? info.message : 'The SA818 rejected that frequency.';
+      sendCatLog('[kv4p] ' + msg);
+      if (win && !win.isDestroyed()) win.webContents.send('app-notice', { message: msg, warn: true, duration: 14000 });
+      if (vfoPopoutWin && !vfoPopoutWin.isDestroyed()) vfoPopoutWin.webContents.send('tune-blocked', msg);
+      try { if (remoteServer && remoteServer.running) remoteServer.sendToClient({ type: 'tune-blocked', reason: msg }); } catch { /* no phone */ }
+    });
+    cat.on('tx-timeout', ({ seconds }) => {
+      const msg = `Transmit stopped after ${seconds} seconds so the kv4p cannot stay keyed.`;
+      sendCatLog('[kv4p] ' + msg);
+      try { handleRemotePtt(false); } catch { /* already receiving */ }
+      if (win && !win.isDestroyed()) win.webContents.send('app-notice', { message: msg, warn: true, duration: 12000 });
+      try { if (remoteServer && remoteServer.running) remoteServer.sendToClient({ type: 'tune-blocked', reason: msg }); } catch { /* no phone */ }
+    });
+    sendCatLog(`Connecting to kv4p HT on ${target.path} at 115200 baud (FM, USB audio).`);
+    cat.connect(target);
 
   } else {
     // Kenwood/Yaesu serial
@@ -22763,6 +22799,25 @@ function handleYaesuLanAudioFrame(frame) {
   }
 }
 
+// kv4p HT receive audio: 48 kHz mono Float32 from the Opus frames on the
+// USB port. The phone bridge and the VFO monitor already play
+// smartsdr-audio-frame at whatever sample rate the frame names. Nothing is
+// queued here; each packet is forwarded and dropped.
+let _kv4pAudioFrames = 0;
+function handleKv4pRxPcm(pcm) {
+  if (!pcm || !pcm.length) return;
+  if (!settings.catTarget || settings.catTarget.type !== 'kv4p') return;
+  if (settings.audioSource !== 'kv4p') return;
+  const sampleRate = 48000;
+  if (_mobileWantsSpectrum) { try { rxSpecRing.push(pcm, sampleRate); } catch { /* spectrum is optional */ } }
+  if (remoteAudioWin && !remoteAudioWin.isDestroyed()) audioSafeSend(remoteAudioWin.webContents, 'smartsdr-audio-frame', { pcm, sampleRate });
+  if (vfoPopoutWin && !vfoPopoutWin.isDestroyed()) audioSafeSend(vfoPopoutWin.webContents, 'smartsdr-audio-frame', { pcm, sampleRate });
+  _kv4pAudioFrames++;
+  if (_kv4pAudioFrames === 1 || _kv4pAudioFrames % 1500 === 0) {
+    sendCatLog(`[kv4p] RX audio frame #${_kv4pAudioFrames}: ${pcm.length} samples @ ${sampleRate} Hz`);
+  }
+}
+
 function handleK4AudioFrame(frame) {
   if (!frame || !frame.data || !frame.data.length) return;
   // We asked for EM3 (Opus Float). RAW modes (EM0/EM1) shouldn't arrive
@@ -25764,6 +25819,14 @@ function connectRemote() {
     if (channelId && channelMemoryOf(String(channelId)) != null && cat && cat.connected && cat.canRecallMemory) {
       markUserActive();
       channelGo(String(channelId), 'ECHOCAT');
+      return;
+    }
+    // kv4p has no radio memory to recall. The phone's Channels tap still
+    // names the channel, and channelGo applies its offset and CTCSS.
+    if (channelId && cat && cat.connected && typeof cat.setRepeater === 'function') {
+      markUserActive();
+      const went = channelGo(String(channelId), 'ECHOCAT');
+      if (went && went.ok === false) sendCatLog('[Channels] ' + went.error);
       return;
     }
     // The operator is back, from their mobile device: an idle-RX session ends
@@ -28986,7 +29049,8 @@ function txLimitNote(state, opts = {}) {
 /** How POTACAT keys this radio, in words, for the log. */
 function pttRouteLabel() {
   const t = settings.catTarget || {};
-  if (t.type === 'none') return t.ptt === 'cm108' ? 'sound-card GPIO' : t.ptt === 'serial' ? `${t.pttLine === 'dtr' ? 'DTR' : 'RTS'} on ${t.pttPort || 'the PTT port'}` : 'VOX';
+    if (t.type === 'none') return t.ptt === 'cm108' ? 'sound-card GPIO' : t.ptt === 'serial' ? `${t.pttLine === 'dtr' ? 'DTR' : 'RTS'} on ${t.pttPort || 'the PTT port'}` : 'VOX';
+    if (t.type === 'kv4p') return 'kv4p USB';
   if (t.ptt === 'vox') return 'the audio interface (VOX)';
   if (t.ptt === 'rts' || t.ptt === 'dtr') return `${t.ptt.toUpperCase()} on the CAT port`;
   if (settings.audioSource === 'icom-network') return 'Icom network';
@@ -30193,6 +30257,9 @@ function _buildAudioBridgeConfig() {
   const daxTxDirect =
     (settings.audioSource === 'smartsdr' && smartSdrAudio && smartSdrAudio.txReady) ||
     (t.type === 'k4-network' && cat && cat.connected) ||
+    // kv4p: the phone's mic is Opus on the USB port, including during the
+    // hello wait, so it is never played out a speaker on this computer.
+    (t.type === 'kv4p' && settings.audioSource === 'kv4p') ||
     // Icom Network: the client's mic goes over RS-BA1, never to a PC sound
     // device (the legacy route played it on this computer's speakers).
     (settings.audioSource === 'icom-network' && !!(_icomNetworkTransport && _icomNetworkTransport.txReady));
@@ -38613,8 +38680,11 @@ function channelGo(id, from) {
   const mem = MemoryRecall.memNumber(c.mem);
   if (mem == null || !cat || !cat.connected || !cat.canRecallMemory) {
     if (mem != null) sendCatLog(`[Channels] ${c.name}: memory ${mem} cannot be recalled over this radio link yet (Icom CI-V and rigctld can) — tuning ${(c.khz / 1000).toFixed(4)} MHz instead`);
+    // kv4p applies the channel's offset and CTCSS itself. Other radios still
+    // only get the receive frequency (their CAT has no tone command here).
+    if (cat && typeof cat.setRepeater === 'function') cat.setRepeater({ offsetKhz: c.offsetKhz || 0, tone: c.tone || '', name: c.name });
     tuneRadio(c.khz, Channels.tuneMode(c.mode), undefined, { origin: `Channels (${from})` });
-    if (c.offsetKhz || c.tone) sendCatLog(`[Channels] ${c.name}: receive frequency only — set the ${c.offsetKhz ? 'offset' : ''}${c.offsetKhz && c.tone ? ' and ' : ''}${c.tone ? 'tone ' + c.tone : ''} on the radio before you transmit, or give the channel its memory number`);
+    if ((c.offsetKhz || c.tone) && !(cat && typeof cat.setRepeater === 'function')) sendCatLog(`[Channels] ${c.name}: receive frequency only — set the ${c.offsetKhz ? 'offset' : ''}${c.offsetKhz && c.tone ? ' and ' : ''}${c.tone ? 'tone ' + c.tone : ''} on the radio before you transmit, or give the channel its memory number`);
     return { ok: true, recalled: false };
   }
   _memoryRecalled = null; // a recall from one memory to another stays in memory mode
@@ -50323,6 +50393,26 @@ function cloudShackNotice(text, kind) {
     });
   });
 
+  // Rig editor "Test Connection" for a kv4p HT. Opens the port, waits for
+  // HELLO, and closes it. Does not transmit. If this port is already the
+  // live radio, report that session instead of fighting it for the device.
+  ipcMain.handle('test-kv4p', async (_e, config) => {
+    const c = config || {};
+    const path = String(c.path || '').trim();
+    if (!path) return { success: false, error: 'Choose the serial port first' };
+    if (cat && cat.kv4p && cat.connected && settings.catTarget && settings.catTarget.path === path) {
+      const s = cat.summary();
+      return { success: true, message: `Already connected. Firmware ${s.firmware}, ${s.module}, RX ${Number(s.rxMhz).toFixed(4)} MHz.` };
+    }
+    const r = await probeKv4p({ port: path, target: c });
+    if (!r.ok) return { success: false, error: r.error || 'No HELLO', logs: r.logs };
+    const s = r.info || {};
+    return {
+      success: true,
+      message: `Firmware ${s.firmware}, ${s.module || 'band unknown'}, module ${s.radio}. RX ${Number(s.rxMhz).toFixed(4)} MHz. Did not transmit.`,
+    };
+  });
+
   // Rig editor "Test Connection" for an flrig rig: one probe, no live
   // connection touched (flrig takes any number of clients).
   ipcMain.handle('test-flrig', async (_e, config) => {
@@ -50988,6 +51078,19 @@ function cloudShackNotice(text, kind) {
   let _daxTxLastVoiceLogMs = 0;
   let _daxTxLastPeakReport = 0;
   ipcMain.on('dax-tx-chunk', (_e, buf) => {
+    // kv4p: the same 24 kHz mic chunks (VFO PTT and the phone) become Opus
+    // on the USB port. Dropped unless PTT is held, so a quiet phone does
+    // not stream into the radio all day.
+    if (cat && cat.kv4p && settings.catTarget && settings.catTarget.type === 'kv4p') {
+      if (!cat._keyed) return;
+      let mic;
+      if (buf instanceof Float32Array) mic = buf;
+      else if (ArrayBuffer.isView(buf) || buf instanceof ArrayBuffer) mic = new Float32Array(buf);
+      else if (Array.isArray(buf)) mic = new Float32Array(buf);
+      else { try { mic = new Float32Array(Object.values(buf)); } catch { return; } }
+      try { cat.pushTxPcm24k(mic); } catch (e) { sendCatLog('[kv4p] TX audio: ' + e.message); }
+      return;
+    }
     // Icom Network: the same 24 kHz mic chunks (VFO window PTT or the ECHOCAT
     // bridge) go to the radio over RS-BA1 while a voice PTT holds the stream.
     if (_icomNetworkTransport && _icomNetworkTransport.voiceTxActive) {

@@ -3356,7 +3356,9 @@ async function pttStart() {
         (s.catTarget && s.catTarget.type === 'k4-network') ||
         // Icom Network: the mic goes to the radio over RS-BA1. The legacy
         // branch played it on this computer's speakers (KG5EIU IC-9700 feedback).
-        (s.audioSource === 'icom-network');
+        (s.audioSource === 'icom-network') ||
+        // kv4p: the mic is Opus on the USB serial port, not a sound card.
+        (s.audioSource === 'kv4p');
 
       if (isDaxTxDirect && window.api.daxTxChunk) {
         txPath = 'direct';
@@ -3991,7 +3993,7 @@ async function startAudioMonitor(opts) {
     const s = await window.api.getSettings();
     // The SCU-LAN10's receive audio is network packets too: without it here
     // the button lit up and played the room microphone (review of the LAN work).
-    if (s.audioSource === 'smartsdr' || s.audioSource === 'icom-network' || s.audioSource === 'yaesu-lan') {
+    if (s.audioSource === 'smartsdr' || s.audioSource === 'icom-network' || s.audioSource === 'yaesu-lan' || s.audioSource === 'kv4p') {
       // Icom Network is the same: its RX audio arrives as packets, and the
       // capture branch below opened this computer's MIC (feedback, no radio).
       // SmartSDR Direct: the Windows DAX RX device is silent (no DAX program

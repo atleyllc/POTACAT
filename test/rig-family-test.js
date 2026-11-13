@@ -66,6 +66,8 @@ eq(familyFromRadioType('icom-network'), 'icom-network', 'icom-network');
 eq(familyFromRadioType('hamlib'), 'hamlib', 'hamlib');
 eq(familyFromRadioType('rigctldnet'), 'rigctld', 'rigctldnet');
 eq(familyFromRadioType('none'), 'none', 'none');
+eq(familyFromRadioType('kv4p'), 'kv4p', 'kv4p');
+eq(familyFromCatTarget({ type: 'kv4p', path: '/dev/ttyUSB0' }), 'kv4p', 'kv4p serial');
 
 console.log('audio source table:');
 eq(audioSourcesFor('flex').map(o => o.value).join(','), 'smartsdr,dax', 'flex offers Flex Direct + local/DAX');
@@ -74,11 +76,12 @@ eq(audioSourcesFor('icom').map(o => o.value).join(','), 'dax', 'plain Icom: loca
 eq(audioSourcesFor('serial').map(o => o.value).join(','), 'dax', 'serial: local only');
 eq(audioSourcesFor('k4').map(o => o.value).join(','), 'dax', 'K4: local only (network audio rides CAT)');
 eq(audioSourcesFor('none').map(o => o.value).join(','), 'dax', 'no rig: local only');
+eq(audioSourcesFor('kv4p').map(o => o.value).join(','), 'kv4p', 'kv4p audio is the USB port');
 eq(defaultAudioSourceFor('flex'), 'smartsdr', 'flex default = Flex Direct');
 eq(defaultAudioSourceFor('icom-network'), 'icom-network', 'RS-BA1 default = network audio');
 eq(defaultAudioSourceFor('icom'), 'dax', 'Icom default = local');
 // No non-Flex family may ever surface a DAX/SmartSDR-worded option (the bug).
-for (const fam of ['icom', 'icom-network', 'serial', 'hamlib', 'rigctld', 'k4', 'generic', 'none']) {
+for (const fam of ['icom', 'icom-network', 'serial', 'hamlib', 'rigctld', 'k4', 'generic', 'none', 'kv4p']) {
   const flexWorded = audioSourcesFor(fam).some(o => /flex|smartsdr/i.test(o.label) || o.value === 'smartsdr');
   eq(flexWorded, false, `${fam}: no Flex-worded audio option`);
 }
