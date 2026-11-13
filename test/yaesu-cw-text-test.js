@@ -27,7 +27,7 @@ function test(name, fn) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function rig(modelId, Codec = KenwoodCodec) {
-  const model = RIG_MODELS[modelId];
+  const model = typeof modelId === 'string' ? RIG_MODELS[modelId] : modelId;
   const transport = new EventEmitter();
   transport.connect = () => {}; transport.disconnect = () => {}; transport.write = () => {};
   const writes = [];
@@ -115,8 +115,11 @@ test('BK-IN read as off: turned on once for back-to-back messages, and said once
   r.disconnect();
 });
 
-test('a non-Yaesu ky1 rig keeps its old path (X6100 still keys first)', async () => {
-  const { rig: r, writes } = rig('X6100');
+test('a non-Yaesu ky1 rig still keys first', async () => {
+  const { rig: r, writes } = rig({
+    brand: 'Test', protocol: 'kenwood', caps: {},
+    cw: { text: 'ky1', textChunk: 50, speed: 'ks', paddleKey: 'txrx', dtrPins: null, taKey: false, breakIn: false },
+  });
   r.sendCwText('E');
   assert.ok(writes.some((w) => /^TX1;|^TX;/.test(w)), JSON.stringify(writes));
   r.disconnect();

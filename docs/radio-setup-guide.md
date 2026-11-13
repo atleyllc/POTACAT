@@ -399,7 +399,7 @@ If you already use **flrig** to control your radio, you don't need POTACAT's bun
 ### Common Uses
 
 - **Raspberry Pi + flrig:** flrig handles the serial connection to your radio, POTACAT connects over TCP on the same Pi or over the LAN
-- **Xiegu X6100 / G90 via flrig:** flrig supports CI-V radios that don't work with Serial CAT (Kenwood)
+- **Xiegu G90 / X6100:** pick the radio as the Radio Model. POTACAT uses Other Rig (Hamlib), model 3088 (G90) or 3087 (X6100), 19200 baud. Serial CAT (Kenwood) gets no reply. flrig is only for when another program already holds the radio.
 - **Remote operation:** flrig on the radio PC, POTACAT on your operating PC — connect over LAN
 - **Sharing the radio:** flrig owns the serial port and multiple programs (POTACAT, WSJT-X, fldigi) can connect via separate rigctld clients
 

@@ -431,7 +431,7 @@ Win4Yaesu caches radio state, so POTACAT's polling doesn't add load on the radio
 | Kenwood TS-480/590/2000 | Serial CAT (Kenwood) | 9600 | No | Also works with Hamlib |
 | Elecraft KX2/KX3/K3 | Serial CAT (Kenwood) | 38400 | No | |
 | Elecraft K4 | IP Radio (TCP CAT) | — | — | Ethernet TCP CAT |
-| Xiegu X6100 | rigctld Network (flrig) | — | — | CI-V via flrig; tested on Raspberry Pi 5 |
+| Xiegu X6100 | Other Rig (Hamlib) | 19200 | Yes | CI-V. Hamlib model 3087. A saved Serial CAT (Kenwood) setup is moved to this on launch, same port. |
 | kv4p HT | kv4p HT (USB serial) | 115200 | — | FM only, one band per unit (2 m or 70 cm), 1 W. Voice and PTT go over the USB port, including from the phone. Not yet confirmed on a radio on the bench. |
 
 The kv4p row is the driver, written against firmware v2.0.0.1. It has not been confirmed with hardware yet. Receive is allowed across the module (134–174 or 400–480 MHz). Transmit is limited to 144–148 or 420–450 MHz, and a key-down is forced back to receive after 3 minutes unless you set a different time-out (15 seconds to 10 minutes).

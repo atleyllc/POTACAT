@@ -669,7 +669,7 @@ function parkInfoFor(ref) {
 // the community feed served by worker/dxpeditions — aggregated DX-World +
 // DXNews + NG3K, refreshed server-side every 6h. See README in that
 // worker for the schema served at /feeds/dxpeditions.json.
-const { getModel, getModelList, RIG_MODELS } = require('./lib/rig-models');
+const { getModel, getModelList, RIG_MODELS, migrateX6100CatTarget } = require('./lib/rig-models');
 const { resolveSetupNotes, radioTypeFromCatTarget } = require('./lib/rig-setup-notes');
 const StationSetup = require('./lib/station-setup');
 const ReviewAsk = require('./lib/review-ask'); // one-time "Rate ECHOCAT" card
@@ -38289,6 +38289,21 @@ function migrateRigSettings(s) {
       audioChanged = true;
     }
     if (audioChanged) saveSettings(s);
+  }
+  // X6100 was saved as Kenwood serial CAT, which the radio does not speak.
+  // Move those rigs to Hamlib 3087 and keep the port. The G90 never had this
+  // step; only the model table was corrected.
+  if (Array.isArray(s.rigs) && s.rigs.length) {
+    let x6100 = false;
+    for (const r of s.rigs) {
+      const before = r && r.catTarget && r.catTarget.path;
+      if (!migrateX6100CatTarget(r)) continue;
+      x6100 = true;
+      console.log(`[rig-migrate] X6100 "${r.name || r.id}" Kenwood serial → Hamlib 3087 on ${r.catTarget.serialPort}`);
+      const live = s.catTarget;
+      if (live && live.type === 'serial' && live.path === before) s.catTarget = JSON.parse(JSON.stringify(r.catTarget));
+    }
+    if (x6100) saveSettings(s);
   }
 }
 
