@@ -61,6 +61,7 @@
   - [QRZ Lookup](#qrz-lookup)
   - [DX Expedition Tracking](#dx-expedition-tracking)
 - [CW Keyer](#cw-keyer)
+- [Nearby repeaters](#nearby-repeaters)
 - [Scan Mode](#scan-mode)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Settings Reference](#settings-reference)
@@ -565,6 +566,18 @@ POTACAT includes a built-in CW keyer for FlexRadio users with a MIDI paddle (e.g
 **CW status:** The CW pill in the status bar shows keyer state. Click it for a popover with volume and WPM controls. The sidetone requires one click anywhere in the app to unlock (browser audio policy).
 
 ---
+
+## Nearby repeaters
+
+Directory → Channels → **Find repeaters** looks up analog repeaters on [RepeaterBook](https://www.repeaterbook.com/) for the state you are in and tunes the ones your radio can hear.
+
+Location is chosen in this order: a latitude and longitude you type, the phone's GPS while it is connected, this computer's location, a city-level internet guess (cached, about ±25 km), then your grid square. The panel says which source it used.
+
+**Load nearest** replaces the Nearby group with the closest repeaters (10 unless you change the count). Ch + and Ch − step through them, on the desktop, in the VFO (Alt+Up / Alt+Down), and on the phone. Each step sets the receive frequency, the offset, and CTCSS. It does not transmit. A DCS-only repeater is tuned with the tone left off, and POTACAT says so.
+
+**Scan** is receive-only. It dwells, holds while the kv4p squelch is open, and moves on after the signal drops. PTT stops it immediately. Squelch 0 cannot be used for this; set squelch to 1 or higher.
+
+RepeaterBook's export API needs an approved app, your own token (`rbuapp_…`), and a contact email. The email is Settings → RepeaterBook contact email. It is not filled in for you. The User-Agent is `POTACAT-atleyllc/1 (+https://github.com/atleyllc/POTACAT; that address)`. With either the email or the token missing, the lookup does not run. The state box starts on “From location” and does not pick a state. Use **Import CHIRP CSV** on the same tab until RepeaterBook has approved this fork. Data courtesy of RepeaterBook.com.
 
 ## Scan Mode
 

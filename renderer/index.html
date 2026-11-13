@@ -1236,6 +1236,37 @@
            reorder (drag the grip), delete, import from a CHIRP CSV and export. A click tunes;
            where the radio cannot reach it the SDR plays it (lib/listen-source.js). -->
       <div id="dirv-channels-container" class="chn hidden">
+        <div id="rb-panel" class="rb-panel">
+          <div class="rb-row">
+            <strong>Find repeaters</strong>
+            <span id="rb-place" class="rb-place">Location: checking…</span>
+            <button type="button" id="rb-load" class="chn-btn chn-btn-tint">Load nearest 10</button>
+            <button type="button" id="rb-prev" class="chn-btn" title="Previous nearby repeater (Alt+Down in the VFO)">Ch −</button>
+            <button type="button" id="rb-next" class="chn-btn" title="Next nearby repeater (Alt+Up in the VFO)">Ch +</button>
+            <button type="button" id="rb-scan" class="chn-btn">Scan</button>
+          </div>
+          <div class="rb-row">
+            <label>State <select id="rb-state" aria-label="State"></select></label>
+            <label>County <input id="rb-county" type="text" placeholder="optional" maxlength="40"></label>
+            <label>Within <input id="rb-radius" type="number" min="0" max="500" value="50" style="width:64px"> mi</label>
+            <label>How many <input id="rb-count" type="number" min="1" max="30" value="10" style="width:56px"></label>
+            <label>Dwell <input id="rb-dwell" type="number" min="2" max="30" value="5" style="width:52px"> s</label>
+            <label>Resume <input id="rb-resume" type="number" min="0" max="30" value="4" style="width:52px"> s</label>
+            <button type="button" id="rb-search" class="chn-btn">Search</button>
+          </div>
+          <div class="rb-row">
+            <label>Manual lat <input id="rb-lat" type="text" inputmode="decimal" placeholder="47.6062" style="width:90px"></label>
+            <label>lon <input id="rb-lon" type="text" inputmode="decimal" placeholder="-122.3321" style="width:100px"></label>
+            <button type="button" id="rb-manual" class="chn-btn">Use this location</button>
+            <button type="button" id="rb-manual-clear" class="chn-btn">Clear override</button>
+            <label>RepeaterBook token <input id="rb-token" type="password" autocomplete="off" placeholder="rbuapp_…" style="width:160px"></label>
+            <button type="button" id="rb-token-save" class="chn-btn">Save token</button>
+            <label>Contact email <input id="rb-contact" type="email" autocomplete="off" placeholder="Settings → RepeaterBook contact email" style="width:240px"></label>
+            <button type="button" id="rb-contact-save" class="chn-btn">Save email</button>
+          </div>
+          <p id="rb-help" class="rb-help">Data courtesy of <a href="https://www.repeaterbook.com/" target="_blank" rel="noopener">RepeaterBook.com</a>. This fork sends <code id="rb-ua"></code>. Put your address in Settings → RepeaterBook contact email, and your own <code>rbuapp_</code> token here. Either one missing and the lookup does not run. Import a CHIRP CSV below in the meantime. The state box starts on “From location”; it does not pick a state for you. A search does not transmit. Scan is receive-only and stops the moment you press PTT. Set the kv4p squelch to 1 or higher or scan cannot hear a carrier.</p>
+          <div id="rb-list" class="rb-list"></div>
+        </div>
         <div class="chn-bar">
           <select id="chn-group-filter" aria-label="Group"><option value="all">All groups</option></select>
           <button type="button" id="chn-add" class="chn-btn chn-btn-tint">+ Add channel</button>
@@ -1704,6 +1735,8 @@
         <span class="help-text" id="home-county-status"></span>
       </div>
       <span class="help-text" style="display:block;margin-bottom:6px;">Written on contacts made from your home grid square and sent to LoTW and your other loggers. Contacts with another grid get no county rather than the wrong one. On an activation, POTACAT uses the county you choose for that park.</span>
+      <label>RepeaterBook contact email: <input type="email" id="set-repeaterbook-contact" autocomplete="off" placeholder="you@example.com" style="width:220px;"></label>
+      <span class="help-text" style="display:block;margin-bottom:6px;">Sent only to RepeaterBook, inside the User-Agent <code>POTACAT-atleyllc/1 (+https://github.com/atleyllc/POTACAT; this address)</code>. Left empty, the repeater lookup does not run. The state list does not pick a state for you.</span>
       <label class="checkbox-label"><input type="checkbox" id="set-enable-qrz"> QRZ.com Callsign Lookup</label>
       <div id="qrz-config" class="radio-sub hidden">
         <span class="help-text" style="font-size:12px;">Looks up operator first names from QRZ.com and shows them in the Operator column. Uses the QRZ XML API — a free QRZ account works.</span>
@@ -2340,7 +2373,7 @@
         </div>
         <label class="radio-label"><input type="radio" name="radio-type" value="kv4p"> kv4p HT <span style="font-size:10px;color:var(--text-tertiary);">— FM, USB serial, 1 W</span></label>
         <div id="kv4p-config" class="radio-sub hidden">
-          <span class="help-text" style="font-size:12px;">An open-source ESP32 + SA818 handheld. FM only, one band per radio (2 m or 70 cm), 1 W. Voice in both directions, including the phone, goes over this USB port as Opus. Pick <b>kv4p HT</b> as the Radio Model. Repeater memories are Directory &gt; Channels (frequency, offset, CTCSS); the phone's Channels tab tunes them, offset and tone included.</span>
+          <span class="help-text" style="font-size:12px;">An open-source ESP32 + SA818 handheld. FM only, one band per radio (2 m or 70 cm), 1 W. Voice in both directions, including the phone, goes over this USB port as Opus. Pick <b>kv4p HT</b> as the Radio Model. Repeater memories are Directory &gt; Channels. <b>Find repeaters</b> there loads the nearest ones this module can hear (a UHF radio is 70 cm only) and can scan them without transmitting. The phone's Channels tab tunes them, offset and tone included.</span>
           <label>Serial port:
             <div style="display:flex;gap:6px;margin-top:4px;">
               <select id="set-kv4p-port" style="flex:1;"></select>
@@ -5404,6 +5437,7 @@
   <script src="../lib/channels.js"></script>
   <script src="../lib/favorites.js"></script>
   <script src="channels-view.js"></script>
+  <script src="repeaterbook-view.js"></script>
   <script src="../lib/landmarks.js"></script>
   <script src="../lib/commander-sequences.js"></script>
   <script src="../lib/spot-row.js"></script>

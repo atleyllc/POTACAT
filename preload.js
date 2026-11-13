@@ -430,6 +430,10 @@ contextBridge.exposeInMainWorld('api', {
   channelsSave: (saved) => ipcRenderer.invoke('channels-save', saved),
   channelsImportCsv: () => ipcRenderer.invoke('channels-import-csv'),
   channelGo: (id) => ipcRenderer.invoke('channel-go', { id }),
+  repeaterbookCommand: (msg) => ipcRenderer.invoke('repeaterbook-command', msg),
+  repeaterbookStatus: () => ipcRenderer.invoke('repeaterbook-status'),
+  repeaterbookOs: (fix) => ipcRenderer.invoke('repeaterbook-os', fix),
+  onRepeaterBank: (cb) => ipcRenderer.on('repeater-bank', (_e, snap) => cb(snap)),
   channelsExportCsv: () => ipcRenderer.invoke('channels-export-csv'),
   // Favourites (#329, lib/favorites.js): starred Landmarks and Channels, owned by main.
   favoritesGet: () => ipcRenderer.invoke('favorites-get'),

@@ -59,6 +59,7 @@
     // offset and tone included (#308); main falls back to tuning when the
     // radio link cannot recall.
     if (c.mem != null && api && api.channelGo) { api.channelGo(c.id); return; }
+    if ((c.offsetKhz || c.tone || c.toneRx) && api && api.channelGo) { api.channelGo(c.id); return; }
     if (!tuneFn) return;
     tuneFn(String(c.khz), C.tuneMode(c.mode));
   }

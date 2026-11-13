@@ -26,6 +26,7 @@ function sampleSettings() {
     cloudAccessToken: 'jwt.a.b',
     cloudRefreshToken: 'refresh-1',
     smartSdrClientId: 'machine-guid',
+    repeaterbookToken: 'rbuapp_token_example',
     catTarget: { type: 'k4-network', host: 'k4', port: 9205, password: 'k4-pw' },
     rigs: [
       { id: 'rig_1', name: 'K4', catTarget: { type: 'k4-network', host: 'k4', password: 'k4-pw' } },
