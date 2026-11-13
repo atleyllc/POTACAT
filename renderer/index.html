@@ -2338,6 +2338,67 @@
             <span class="help-text" style="display:block;font-size:11px;">PTT keys from any surface — this PC, ECHOCAT on your phone, FT8. Linux: the sound card's hidraw device needs read/write for your user (the udev rule Dire Wolf documents).</span>
           </div>
         </div>
+        <label class="radio-label"><input type="radio" name="radio-type" value="kv4p"> kv4p HT <span style="font-size:10px;color:var(--text-tertiary);">— FM, USB serial, 1 W</span></label>
+        <div id="kv4p-config" class="radio-sub hidden">
+          <span class="help-text" style="font-size:12px;">An open-source ESP32 + SA818 handheld. FM only, one band per radio (2 m or 70 cm), 1 W. Voice in both directions, including the phone, goes over this USB port as Opus. Pick <b>kv4p HT</b> as the Radio Model. Repeater memories are Directory &gt; Channels (frequency, offset, CTCSS); the phone's Channels tab tunes them, offset and tone included.</span>
+          <label>Serial port:
+            <div style="display:flex;gap:6px;margin-top:4px;">
+              <select id="set-kv4p-port" style="flex:1;"></select>
+              <input type="text" id="set-kv4p-port-manual" placeholder="or type the port" style="width:180px;">
+            </div>
+          </label>
+          <span class="help-text" style="margin-top:2px;display:block;">Mac: <code>/dev/cu.usbserial-1110</code> (the cu. device, not tty.). Linux: <code>/dev/ttyUSB0</code>, <code>/dev/ttyACM0</code>, or a <code>/dev/serial/by-id/…</code> link. Arch: your user needs the <b>uucp</b> group (<code>sudo usermod -aG uucp $USER</code>, then log out). Debian and Ubuntu: the <b>dialout</b> group. Baud is 115200. POTACAT resets the ESP32 on connect and opens the port again if it drops.</span>
+          <label>Band, if the firmware does not say:
+            <select id="set-kv4p-band">
+              <option value="auto" selected>Use what the radio reports</option>
+              <option value="vhf">VHF / 2 m (134–174 MHz)</option>
+              <option value="uhf">UHF / 70 cm (400–480 MHz)</option>
+            </select>
+          </label>
+          <label>Squelch (0 open – 8 tight):
+            <input type="number" id="set-kv4p-squelch" min="0" max="8" value="1" style="width:60px;">
+          </label>
+          <label>CTCSS tone:
+            <select id="set-kv4p-ctcss"><option value="0">None</option></select>
+          </label>
+          <label>Repeater offset:
+            <select id="set-kv4p-offset">
+              <option value="simplex" selected>Simplex</option>
+              <option value="minus">Minus</option>
+              <option value="plus">Plus</option>
+            </select>
+            <input type="number" id="set-kv4p-offset-khz" min="0" max="20000" value="600" style="width:80px;" title="kHz. 600 is usual on 2 m, 5000 on 70 cm."> kHz
+          </label>
+          <span class="help-text" style="margin-top:2px;display:block;">This offset and tone are used when you tune the dial. A channel from Directory &gt; Channels replaces them for that channel. Transmit stays off outside 144–148 MHz (2 m) or 420–450 MHz (70 cm). Listening, including weather radio, still works inside the module's range.</span>
+          <label>Channel width:
+            <select id="set-kv4p-bw">
+              <option value="25" selected>25 kHz</option>
+              <option value="12.5">12.5 kHz</option>
+            </select>
+          </label>
+          <label class="checkbox-label" style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-kv4p-high" checked> High power (1 W; off is the module's low power)
+          </label>
+          <label class="checkbox-label" style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="set-kv4p-pre"> Pre-emphasis
+          </label>
+          <label>Transmit time-out (seconds):
+            <input type="number" id="set-kv4p-tx-timeout" min="15" max="600" value="180" style="width:70px;">
+          </label>
+          <span class="help-text" style="margin-top:2px;display:block;">If a PTT, including one from the phone, is never released, POTACAT unkeys the radio after this long. 180 seconds is the default. It cannot be turned off.</span>
+          <div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <input type="text" id="set-kv4p-repeater-name" placeholder="Repeater name" style="width:140px;">
+            <input type="number" id="set-kv4p-repeater-mhz" placeholder="MHz" step="0.005" style="width:100px;" title="Receive frequency in MHz">
+            <button type="button" id="kv4p-save-repeater">Save repeater</button>
+            <span id="kv4p-repeater-status" style="font-size:12px;"></span>
+          </div>
+          <span class="help-text" style="margin-top:2px;display:block;">Saves a channel in the Repeater group (frequency, the offset above, and the CTCSS tone). It shows on the phone under Channels.</span>
+          <div id="kv4p-repeater-list" style="margin-top:6px;font-size:12px;"></div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+            <button type="button" id="kv4p-test-btn">Test Connection</button>
+            <span id="kv4p-test-result" style="font-size:12px;"></span>
+          </div>
+        </div>
         <details id="rig-external-atu-details" style="margin-top:8px;">
           <summary style="cursor:pointer;font-size:13px;color:var(--accent-blue);">External ATU (optional)</summary>
           <div style="margin-top:6px;margin-left:4px;">
@@ -5291,6 +5352,23 @@
           <label>Host: <input type="text" id="welcome-dxlab-commander-host" placeholder="127.0.0.1" value="127.0.0.1"></label>
           <label>Port: <input type="number" id="welcome-dxlab-commander-port" min="1" max="65535" value="52002"></label>
         </div>
+        <label class="radio-label"><input type="radio" name="welcome-radio-type" value="kv4p"> kv4p HT (FM over USB)</label>
+        <div id="welcome-kv4p-config" class="radio-sub hidden">
+          <span class="help-text">FM only, 1 W, one band. More settings (squelch, CTCSS, offset, time-out) are in Settings &gt; My Rigs after this. Linux: /dev/ttyUSB0, and the uucp group on Arch or dialout on Debian. Mac: /dev/cu.usbserial-…</span>
+          <label>Serial port:
+            <div style="display:flex;gap:6px;margin-top:4px;">
+              <select id="welcome-kv4p-port" style="flex:1;"></select>
+              <input type="text" id="welcome-kv4p-port-manual" placeholder="/dev/ttyUSB0 or /dev/cu.usbserial-1110" style="width:220px;">
+            </div>
+          </label>
+          <label>Band:
+            <select id="welcome-kv4p-band">
+              <option value="auto" selected>Use what the radio reports</option>
+              <option value="vhf">VHF / 2 m</option>
+              <option value="uhf">UHF / 70 cm</option>
+            </select>
+          </label>
+        </div>
         <label class="radio-label"><input type="radio" name="welcome-radio-type" value="nocat"> No CAT control (VOX)</label>
         <div id="welcome-nocat-config" class="radio-sub hidden">
           <span class="help-text">For a radio with no computer control — a VOX-keyed kit such as the Pebble HF. You tune it by hand; POTACAT's audio keys it through its VOX. Choose the sound card that connects to the radio as the audio Input and Output afterwards (Settings &gt; My Rigs).</span>
@@ -5316,6 +5394,7 @@
   <script src="../node_modules/leaflet/dist/leaflet.js"></script>
   <script src="../lib/freq-dots.js"></script>
   <script src="../lib/rig-family.js"></script>
+  <script src="../lib/kv4p-tones.js"></script>
   <script src="../lib/waterfall-palettes.js"></script>
   <script src="../lib/app-theme.js"></script>
   <script src="../lib/look-picker.js"></script>

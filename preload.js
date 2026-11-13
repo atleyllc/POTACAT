@@ -296,6 +296,7 @@ contextBridge.exposeInMainWorld('api', {
   testCivTcp: (config) => ipcRenderer.invoke('test-civ-tcp', config),
   testIcomNetwork: (config) => ipcRenderer.invoke('test-icom-network', config),
   testYaesuLan: (config) => ipcRenderer.invoke('test-yaesu-lan', config),
+  testKv4p: (config) => ipcRenderer.invoke('test-kv4p', config),
   connectCat: (target) => ipcRenderer.send('connect-cat', target),
   onCatFrequency: (cb) => ipcRenderer.on('cat-frequency', (_e, hz) => cb(hz)),
   onCatMode: (cb) => ipcRenderer.on('cat-mode', (_e, mode) => cb(mode)),
