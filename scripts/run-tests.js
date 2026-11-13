@@ -45,6 +45,7 @@ const TESTS = [
   'test/rig-gain-steps-test.js',
   'test/rig-family-test.js',
   'test/kv4p-codec-test.js',
+  'test/repeaterbook-test.js', // RepeaterBook JSON → channels, nearby bank, scan machine
   'test/rigctld-attribution-test.js',
   'test/flrig-codec-test.js',
   'test/cw-text-unsupported-link-test.js',

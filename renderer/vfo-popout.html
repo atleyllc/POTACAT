@@ -511,6 +511,9 @@
     .mode-btn { border: 0; background: var(--s2); color: var(--t); padding: 9px 4px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; min-width: 56px; }
     .mode-btn:hover { background: var(--s3); }
     .mode-btn.active { background: var(--green-tint); color: var(--green); }
+    .rb-bank { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 14px; color: var(--t2); }
+    .rb-bank button { font-size: 14px; padding: 4px 8px; border-radius: 6px; border: 0; background: var(--s2); color: var(--t); cursor: pointer; }
+    .rb-bank #rb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -546,6 +549,12 @@
         <button class="ib vfo-lock-btn" id="vfo-lock-btn" title="Click to lock VFO" aria-label="Lock frequency"></button>
       </div>
       <button class="freq-display mono" id="freq-display" title="Click to type a frequency"><span class="fq-main">--.---</span><span class="fq-sub">.---</span><span class="fq-unit">MHz</span></button>
+      <div id="rb-bank" class="rb-bank" hidden>
+        <button type="button" id="rb-prev" title="Previous nearby repeater">Ch −</button>
+        <span id="rb-label">Nearby</span>
+        <button type="button" id="rb-next" title="Next nearby repeater">Ch +</button>
+        <button type="button" id="rb-scan">Scan</button>
+      </div>
       <!-- Split: both frequencies visible, one under the other (TS-480 ask). -->
       <div class="freq-other-row" id="freq-other-row" title="TX frequency (the other VFO), split is on">
         <span class="freq-other-tag">TX</span>
@@ -2030,6 +2039,35 @@ document.addEventListener('paste', (e) => {
 
 // Keyboard: typing digits anywhere opens type-to-tune (never while a text
 // field has focus: CW text, profile names).
+(function repeaterBank() {
+  const bank = document.getElementById('rb-bank');
+  const label = document.getElementById('rb-label');
+  if (!bank || !window.api || !window.api.repeaterbookCommand) return;
+  function mhz(khz) { return (Number(khz) / 1000).toFixed(4); }
+  function show(snap) {
+    const cur = snap && snap.current;
+    const n = snap && snap.channels ? snap.channels.length : 0;
+    if (!n) { bank.hidden = true; return; }
+    bank.hidden = false;
+    const off = cur && cur.offsetKhz ? (cur.offsetKhz > 0 ? '+' : '') + (Math.abs(cur.offsetKhz) >= 1000 ? (cur.offsetKhz / 1000) + ' MHz' : cur.offsetKhz + ' kHz') : '';
+    label.textContent = ((snap.index || 0) + 1) + '/' + n + '  ' + (cur ? cur.name : '') + '  ' + (cur ? mhz(cur.khz) : '') + (off ? '  ' + off : '') + (cur && cur.tone ? '  T' + cur.tone : '') + (snap.scanning ? '  · scan' : '');
+    document.getElementById('rb-scan').textContent = snap.scanning ? 'Stop' : 'Scan';
+  }
+  document.getElementById('rb-prev').addEventListener('click', () => window.api.repeaterbookCommand({ op: 'prev' }).then(show));
+  document.getElementById('rb-next').addEventListener('click', () => window.api.repeaterbookCommand({ op: 'next' }).then(show));
+  document.getElementById('rb-scan').addEventListener('click', () => {
+    window.api.repeaterbookStatus().then((s) => window.api.repeaterbookCommand({ op: s && s.scanning ? 'scan-stop' : 'scan-start' })).then(show);
+  });
+  if (window.api.onRepeaterBank) window.api.onRepeaterBank(show);
+  window.api.repeaterbookStatus().then(show).catch(() => {});
+  document.addEventListener('keydown', (e) => {
+    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    e.preventDefault();
+    window.api.repeaterbookCommand({ op: e.key === 'ArrowUp' ? 'next' : 'prev' }).then(show);
+  });
+})();
 document.addEventListener('keydown', (e) => {
   const t = e.target;
   // The "Type a frequency" box (readonly) is ours to type into: clicking it

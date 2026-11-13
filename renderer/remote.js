@@ -517,6 +517,7 @@
   let directorySwl = [];
   let directoryLandmarks = [];        // the Landmarks tab (lib/landmarks.js)
   let directoryChannels = [];         // the Channels tab: the shack's saved frequency chart (lib/channels.js)
+  let repeaterSnap = null;            // Nearby bank from the shack (receive only)
   let directoryLandmarkFavs = [];     // the ids the shack's operator starred (#329, lib/favorites.js)
   let directoryChannelFavs = [];
   let directoryLandmarkCategories = [];
@@ -2381,6 +2382,11 @@
         renderSpots();
         if (activeTab === 'map') renderMapSpots();
         if (bc) { try { bc.postMessage({ kind: 'spots', data: spots }); } catch {} }
+        break;
+
+      case 'repeater-bank':
+        repeaterSnap = msg;
+        if (activeTab === 'dir' && dirActiveTab === 'channels') renderDirectoryTab();
         break;
 
       case 'directory':
@@ -12397,9 +12403,59 @@ var _paddleHoldTimer = { dit: null, dah: null };
     var a = Math.abs(k), sign = k > 0 ? '+' : '-';
     return a >= 1000 ? sign + (a / 1000).toFixed(a % 1000 ? 3 : 1).replace(/\.0$/, '') + ' MHz' : sign + a + ' kHz';
   }
+  function rbSend(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+  function rbLoadNearest() {
+    function go() { rbSend({ type: 'repeater-bank', op: 'load', count: 10 }); }
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function(pos) {
+        rbSend({ type: 'repeater-place', lat: pos.coords.latitude, lon: pos.coords.longitude, accuracyM: pos.coords.accuracy });
+        go();
+      }, go, { enableHighAccuracy: true, maximumAge: 60000, timeout: 4000 });
+    } else go();
+  }
+  function renderRepeaterBank() {
+    var bar = document.createElement('div');
+    bar.className = 'dir-card';
+    var snap = repeaterSnap;
+    var cur = snap && snap.current;
+    var n = snap && snap.channels ? snap.channels.length : 0;
+    var place = snap && snap.place ? snap.place.text : 'Location comes from this phone, then the shack.';
+    var line = place;
+    if (cur && n) line = (n ? ((snap.index || 0) + 1) + '/' + n + ' ' : '') + cur.name + '  ' + FreqDots.fromKhz(cur.khz) + (cur.tone ? ' T' + cur.tone : '') + (snap.scanning ? '  · scan' : '') + ' · ' + place;
+    bar.innerHTML = '<div class="dir-card-row"><span class="dir-card-name">Nearby repeaters</span></div><div class="dir-card-detail"></div><div class="dir-card-row"></div>';
+    bar.querySelector('.dir-card-detail').textContent = line + ' Data courtesy of RepeaterBook.com. Scan does not transmit.';
+    function btn(text, op) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = text;
+      b.style.marginRight = '6px';
+      b.addEventListener('click', function(ev) { ev.stopPropagation(); if (op === 'load') rbLoadNearest(); else rbSend({ type: 'repeater-bank', op: op }); });
+      return b;
+    }
+    var row = bar.querySelectorAll('.dir-card-row')[1];
+    row.appendChild(btn('Nearest 10', 'load'));
+    row.appendChild(btn('Ch −', 'prev'));
+    row.appendChild(btn('Ch +', 'next'));
+    row.appendChild(btn(snap && snap.scanning ? 'Stop scan' : 'Scan', snap && snap.scanning ? 'scan-stop' : 'scan-start'));
+    dirList.appendChild(bar);
+    if (snap && snap.warning) {
+      var warn = document.createElement('div');
+      warn.className = 'dir-empty';
+      warn.textContent = snap.warning;
+      dirList.appendChild(warn);
+    }
+  }
   function renderDirChannels(search) {
+    renderRepeaterBank();
     if (!directoryChannels.length) {
-      dirList.innerHTML = '<div class="dir-empty">No channels yet. Add them on the desktop: Directory > Channels.</div>';
+      if (!repeaterSnap || !repeaterSnap.channels || !repeaterSnap.channels.length) {
+        var empty = document.createElement('div');
+        empty.className = 'dir-empty';
+        empty.textContent = 'No saved channels yet. Load nearest, or add them on the desktop: Directory > Channels.';
+        dirList.appendChild(empty);
+      }
       return;
     }
     var rows = directoryChannels.filter(function(c) {
@@ -12435,7 +12491,12 @@ var _paddleHoldTimer = { dit: null, dah: null };
         dirList.appendChild(card);
       });
     });
-    if (!rows.length) dirList.innerHTML = '<div class="dir-empty">Nothing matches.</div>';
+    if (!rows.length) {
+      var none = document.createElement('div');
+      none.className = 'dir-empty';
+      none.textContent = 'Nothing matches.';
+      dirList.appendChild(none);
+    }
   }
 
   function renderDirSwl(search) {

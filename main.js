@@ -9105,6 +9105,7 @@ async function connectCat() {
     cat.on('mode', catModeHandler);
     cat.on('smeter', sendCatSmeter);
     cat.on('audio', (pcm) => handleKv4pRxPcm(pcm));
+    cat.on('activity', (ev) => { try { repeaterSvc().noteActivity(ev); } catch { /* scan reads it on its own tick */ } });
     cat.on('tune-rejected', (info) => {
       const msg = info && info.message ? info.message : 'The SA818 rejected that frequency.';
       sendCatLog('[kv4p] ' + msg);
@@ -25812,6 +25813,11 @@ function connectRemote() {
   // origin check.
   remoteServer.on('server-state', onEchocatServerState);
 
+  remoteServer.on('repeater-place', (fix) => { try { repeaterSvc().setPhone(fix); } catch { /* location is optional */ } });
+  remoteServer.on('repeater-bank', (msg) => {
+    Promise.resolve(repeaterSvc().command(msg)).catch((e) => sendCatLog('[Repeaters] ' + (e && e.message ? e.message : e)));
+  });
+
   remoteServer.on('tune', ({ freqKhz, mode, bearing, channelId, pickSideband }) => {
     // A Channels tap from ECHOCAT names its channel: one with a memory
     // number is recalled on the radio instead (#308). Older apps send no
@@ -29241,6 +29247,7 @@ function pttAudioActive(opts = {}) {
 
 // Returns false when it refuses a key-down (callers with audio must not play it).
 function handleRemotePtt(state, opts = {}) {
+  if (state) { try { if (_repeaterSvc) _repeaterSvc.ptt(); } catch { /* no scan */ } }
   pushActivityState();   // busy.tx edges reach the activity feed (debounced)
   // Driving a remote shack: every PTT source on this desktop (the VFO
   // window's button, HOLD TO TALK, voice keying) keys the SHACK's radio and
@@ -38533,6 +38540,7 @@ function sstvHaltTxNow() {
 }
 
 function gatedSetTransmit(state, emission) {
+  if (state) { try { if (_repeaterSvc) _repeaterSvc.ptt(); } catch { /* no scan */ } }
   // SCU-LAN10 with the LAN as the audio source: no transmit audio exists, so
   // a CAT key-down from ANY path here would be a silent carrier. The
   // external-ATU tune carrier (an AM/CW carrier on purpose) stays allowed;
@@ -38682,7 +38690,14 @@ function channelGo(id, from) {
     if (mem != null) sendCatLog(`[Channels] ${c.name}: memory ${mem} cannot be recalled over this radio link yet (Icom CI-V and rigctld can) — tuning ${(c.khz / 1000).toFixed(4)} MHz instead`);
     // kv4p applies the channel's offset and CTCSS itself. Other radios still
     // only get the receive frequency (their CAT has no tone command here).
-    if (cat && typeof cat.setRepeater === 'function') cat.setRepeater({ offsetKhz: c.offsetKhz || 0, tone: c.tone || '', name: c.name });
+    if (cat && typeof cat.setRepeater === 'function') {
+      const rep = cat.setRepeater({ offsetKhz: c.offsetKhz || 0, tone: c.tone || '', toneRx: c.toneRx || '', name: c.name });
+      if (rep && rep.warning) {
+        sendCatLog('[Channels] ' + rep.warning);
+        if (win && !win.isDestroyed()) win.webContents.send('app-notice', { message: rep.warning, warn: true, duration: 12000 });
+        try { if (remoteServer && remoteServer.running) remoteServer.sendToClient({ type: 'tune-blocked', reason: rep.warning }); } catch { /* no phone */ }
+      }
+    }
     tuneRadio(c.khz, Channels.tuneMode(c.mode), undefined, { origin: `Channels (${from})` });
     if ((c.offsetKhz || c.tone) && !(cat && typeof cat.setRepeater === 'function')) sendCatLog(`[Channels] ${c.name}: receive frequency only — set the ${c.offsetKhz ? 'offset' : ''}${c.offsetKhz && c.tone ? ' and ' : ''}${c.tone ? 'tone ' + c.tone : ''} on the radio before you transmit, or give the channel its memory number`);
     return { ok: true, recalled: false };
@@ -38703,6 +38718,67 @@ function channelGo(id, from) {
   }, 1500 - Math.min(1500, Date.now() - started));
   return { ok: true, recalled: true, mem };
 }
+
+// Nearby repeaters (lib/repeater-service.js). Receive only: a step tunes
+// the dial and sets offset and CTCSS. It never keys the radio. PTT and any
+// other tune stop a scan in progress.
+let _repeaterSvc = null;
+function repeaterReach() {
+  if (cat && cat.kv4p && typeof cat.summary === 'function') {
+    const s = cat.summary();
+    if (s.minMhz > 1 && s.maxMhz > s.minMhz) return [[s.minMhz * 1e6, s.maxMhz * 1e6]];
+  }
+  try { return rigReachNow(); } catch { return null; }
+}
+function repeaterBands() {
+  if (cat && cat.kv4p && typeof cat.summary === 'function') {
+    const id = cat.summary().moduleId;
+    if (id === 'uhf') return ['70cm'];
+    if (id === 'vhf') return ['2m'];
+  }
+  try {
+    const model = getActiveRigModel();
+    const ham = ['10m', '6m', '2m', '1.25m', '70cm', '33cm'];
+    if (model && Array.isArray(model.bands)) {
+      const b = model.bands.filter((x) => ham.indexOf(x) >= 0);
+      if (b.length) return b;
+    }
+  } catch { /* the model list can throw before a rig is picked */ }
+  return ['2m', '70cm'];
+}
+function repeaterBroadcast(snap) {
+  if (win && !win.isDestroyed()) win.webContents.send('repeater-bank', snap);
+  if (vfoPopoutWin && !vfoPopoutWin.isDestroyed()) vfoPopoutWin.webContents.send('repeater-bank', snap);
+  try { if (remoteServer && remoteServer.running) remoteServer.sendToClient(Object.assign({ type: 'repeater-bank' }, snap)); } catch { /* no phone */ }
+}
+function repeaterTune(plan) {
+  if (!plan || plan.transmit || !(plan.khz > 0)) return;
+  if (cat && typeof cat.setRepeater === 'function') cat.setRepeater({ offsetKhz: plan.offsetKhz || 0, tone: plan.tone || '', toneRx: plan.toneRx || '', name: plan.name || '' });
+  else if (plan.offsetKhz || plan.tone) sendCatLog(`[Repeaters] ${plan.name || 'Repeater'}: receive frequency only — set the offset and tone on the radio before you transmit`);
+  tuneRadio(plan.khz, 'FM', undefined, { origin: 'Repeaters' });
+}
+function repeaterSvc() {
+  if (_repeaterSvc) return _repeaterSvc;
+  const Svc = require('./lib/repeater-service');
+  _repeaterSvc = Svc.create({
+    getSettings: () => settings,
+    saveSettings: () => { try { saveSettings(settings); } catch (e) { console.warn('[Repeaters]', e.message); } },
+    channelsApi: Channels,
+    cacheDir: () => path.join(app.getPath('userData'), 'repeaterbook'),
+    log: (line) => { try { sendCatLog(line); } catch { console.log(line); } },
+    notify: (msg) => {
+      if (win && !win.isDestroyed()) win.webContents.send('app-notice', { message: msg, warn: true, duration: 12000 });
+      try { if (remoteServer && remoteServer.running) remoteServer.sendToClient({ type: 'tune-blocked', reason: msg }); } catch { /* no phone */ }
+    },
+    tune: repeaterTune,
+    reach: repeaterReach,
+    bands: repeaterBands,
+    onChange: repeaterBroadcast,
+    onChannels: () => { try { favoritesBroadcast(); } catch { /* directory push is best-effort */ } },
+  });
+  return _repeaterSvc;
+}
+
 /** Leave the recalled memory for VFO mode, once. */
 function channelLeaveMemory(why) {
   const r = _memoryRecalled;
@@ -38728,6 +38804,11 @@ function bandJumpMode(freqKhz) {
 }
 
 function tuneRadio(freqKhz, mode, brng, { clearXit, origin } = {}) {
+  // A dial move, a spot click, or a saved channel leaves the repeater scan.
+  // The scan's own tunes are marked Repeaters so they do not stop themselves.
+  if (!String(origin || '').startsWith('Repeaters')) {
+    try { if (_repeaterSvc && _repeaterSvc.status().scanning) _repeaterSvc.stop('dial'); } catch { /* scan was idle */ }
+  }
   let freqHz = Math.round(parseFloat(freqKhz) * 1000); // kHz -> Hz
   // An FT8/FT4/FT2 spot names the signal (dial + audio offset): tune the
   // mode's dial when the spot is in its passband (lib/dial-snap.js).
@@ -48598,6 +48679,9 @@ function cloudShackNotice(text, kind) {
     return next;
   });
   ipcMain.handle('channel-go', (_e, { id } = {}) => channelGo(String(id || ''), 'Directory > Channels'));
+  ipcMain.handle('repeaterbook-command', (_e, msg) => repeaterSvc().command(msg || {}));
+  ipcMain.handle('repeaterbook-status', () => repeaterSvc().status());
+  ipcMain.handle('repeaterbook-os', (_e, fix) => { repeaterSvc().setOs(fix || {}); return repeaterSvc().status(); });
   // Favourites (#329): every window reads and stars through main.
   ipcMain.handle('favorites-get', () => favoritesState());
   ipcMain.handle('favorite-set', (_e, { kind, id, on } = {}) => favoriteSet(String(kind || ''), String(id || ''), on, 'desktop'));

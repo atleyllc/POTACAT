@@ -541,7 +541,7 @@ POTACAT  ←→  COM19 ──(COM0COM)── COM18  ←→  Win4Icom  ←→  Ra
 
 POTACAT speaks the radio's USB protocol directly (firmware v2.0.0.1 or newer). There is no sound card: receive audio, the microphone, and PTT all use the serial port. The phone uses the same path.
 
-Limits, honestly: FM only, one band per unit, 1 watt. The firmware reports VHF or UHF. Transmit is kept inside 144–148 MHz or 420–450 MHz. A key-down that is never released is forced back to receive after 3 minutes (changeable, 15 seconds to 10 minutes). This driver has not been confirmed on a radio yet.
+Limits, honestly: FM only, one band per unit, 1 watt. The firmware reports VHF or UHF. Transmit is kept inside 144–148 MHz or 420–450 MHz. A key-down that is never released is forced back to receive after 3 minutes (changeable, 15 seconds to 10 minutes). On a firmware 17 UHF radio, the hello, receive audio, and a tune to 446.000 MHz have been confirmed. Transmit from POTACAT has not been confirmed on the air.
 
 ### Setup
 
@@ -556,7 +556,10 @@ Limits, honestly: FM only, one band per unit, 1 watt. The firmware reports VHF o
    - Log out and back in, then unplug the radio and plug it back in.
 5. Save. POTACAT resets the ESP32 on connect (the firmware sends its hello only at boot) and opens the port again if the cable is pulled or the chip reboots.
 6. Repeater channels: Directory → Channels, or **Save repeater** on the kv4p settings (name, receive frequency, offset, CTCSS). The phone's Channels tab tunes them, offset and tone included.
-7. Hear the radio on this computer from the VFO window's audio monitor. The phone hears it as soon as the ECHOCAT audio bridge is up.
+7. Nearby repeaters: Directory → Channels → **Find repeaters**. POTACAT asks RepeaterBook for the state you are in, keeps the ones this radio can hear (a UHF kv4p is 70 cm only), and **Load nearest** puts the closest into the Nearby group. Ch + / Ch − in that panel, and Alt+Up / Alt+Down in the VFO, step through them. Scan listens and stops on an open squelch. It never transmits, and PTT stops it at once. Set squelch to 1 or higher first; squelch 0 hears everything, so scan cannot tell a signal from silence.
+   Location, first match wins: a latitude and longitude you type, then the phone's GPS while ECHOCAT is connected, then this computer's location, then a city-level guess from the internet (ipwho.is, cached a day), then the grid in Settings. The line above the list says which one was used.
+   RepeaterBook requires an approved application and your own `rbuapp_` token, pasted into the token box. It is stored on this computer and left out of a settings export. POTACAT's User-Agent is `POTACAT/1 (+https://potacat.com; casey@potacat.com)`. Until RepeaterBook lists POTACAT, the lookup is refused and **Import CHIRP CSV** is the way in. A DCS tone is not sent to the kv4p; the frequency and offset still are, and a notice says the tone was left off.
+8. Hear the radio on this computer from the VFO window's audio monitor. The phone hears it as soon as the ECHOCAT audio bridge is up.
 
 From a terminal, without starting the app:
 

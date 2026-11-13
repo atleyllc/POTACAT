@@ -21514,6 +21514,7 @@ if (dirvTabChannels) dirvTabChannels.addEventListener('click', () => setDirvTab(
 if (window.ChannelsView) {
   window.ChannelsView.init({ api: window.api, tune: (khz, mode) => window.api.tune(khz, mode), radioKhz: () => radioFreqKhz, onFavorite: (id) => favToggle('channel', id) });
 }
+if (window.RepeaterBookView) window.RepeaterBookView.init({ api: window.api });
 if (dirvCategoryFilter) dirvCategoryFilter.addEventListener('change', () => renderDirectoryView());
 {
   const discordLink = document.getElementById('dirv-suggest-discord');

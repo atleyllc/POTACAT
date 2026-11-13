@@ -32,6 +32,17 @@
 .chn-empty { padding: 20px; color: var(--text-dim); text-align: center; }
 .chn-hidden-note td { color: var(--text-dim); font-size: 11px; padding-top: 8px; }
 .chn-status { font-size: 11px; color: var(--text-dim); }
+.rb-panel { padding: 8px 10px; border-bottom: 1px solid var(--border-primary); background: var(--bg-secondary); }
+.rb-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 14px; color: var(--text-primary); }
+.rb-row label { display: flex; align-items: center; gap: 4px; font-size: 14px; }
+.rb-row input, .rb-row select { font-size: 14px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; padding: 3px 6px; }
+.rb-place { color: var(--text-secondary); }
+.rb-help { margin: 0 0 6px; font-size: 13px; line-height: 1.4; color: var(--text-secondary); }
+.rb-help a { color: var(--accent-blue); }
+.rb-list { max-height: 220px; overflow: auto; }
+.rb-item { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--border-primary); font-size: 14px; }
+.rb-item .rb-name { font-weight: 700; min-width: 8em; }
+.rb-item .rb-warn { color: var(--accent-red); }
 
 /* Favourites (issue 329, lib/favorites.js starHtml): the star on Landmarks and
    Channels rows. POTACAT blue when starred, never yellow; theme tokens only. */
