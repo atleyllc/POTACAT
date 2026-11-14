@@ -890,6 +890,9 @@ html, body {
 .em-group { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .em-label { color: #888; font-weight: 600; }
 .em-val { color: #ccc; font-weight: 700; min-width: 36px; }
+.em-group.swr-warn .em-val { color: var(--sota); }
+.em-group.swr-alarm .em-val { color: var(--accent); }
+.em-group.swr-alarm { box-shadow: inset 0 -2px 0 var(--accent); }
 
 /* Bottom bar: connect audio prompt */
 .bb-connect-btn {

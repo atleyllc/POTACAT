@@ -3501,6 +3501,7 @@ function _rigCapabilitiesForType(rigType) {
     // an old ECHOCAT build is unaffected. (KB2UXB 2026-08-04.)
     if (Array.isArray(model.preampSteps)) caps.preampSteps = model.preampSteps.slice();
     if (Array.isArray(model.attSteps)) caps.attSteps = model.attSteps.slice();
+    if (_txPowerFixed) caps.txpowerFixed = true;
     const probed = (cat && typeof cat.getGainSteps === 'function') ? cat.getGainSteps() : null;
     if (probed) {
       if (probed.preampSteps && probed.preampSteps.length) caps.preampSteps = probed.preampSteps;
@@ -4081,8 +4082,10 @@ function sendCatStatus(s) {
     if (!_catLinkUpKnown) {
       _catLinkUpKnown = true;
       _catLinkUpLast = linkUp;
+      if (linkUp) maybeApplyPowerOnConnect(true);
     } else if (linkUp !== _catLinkUpLast) {
       _catLinkUpLast = linkUp;
+      maybeApplyPowerOnConnect(linkUp);
       stationSetupNotify();
       sendVfoState(); // the VFO window stops (or starts) showing the radio's dial
       if (!linkUp) {
@@ -4760,6 +4763,9 @@ function pushDxeSettingsToWindow() {
 }
 
 const METER_KEYS = ['smeter', 'swr', 'alc', 'power'];
+let _txPowerFixed = false;
+let _meterSupport = null;
+let _powerOnConnectDue = true;
 const _metersSeenSession = new Set();
 let _metersSaveTimer = null;
 function _meterRigSig(rig) {
@@ -4790,7 +4796,39 @@ function vfoMetersAvailable() {
   const rig = _activeRigForMeters();
   const persisted = rig && rig.metersSeen && rig.metersSeen.sig === _meterRigSig(rig) && Array.isArray(rig.metersSeen.list) ? rig.metersSeen.list : [];
   for (const k of METER_KEYS) out[k] = _metersSeenSession.has(k) || persisted.includes(k);
+  // A dump_caps range of 0..0 (QDX SWR) hides that meter even if an older
+  // session remembered a reading. null = the dump never named it.
+  const dead = { smeter: 'smeter', swr: 'swr', alc: 'alc', power: 'fwdPower' };
+  if (_meterSupport) {
+    for (const k of METER_KEYS) {
+      if (_meterSupport[dead[k]] === false) out[k] = false;
+    }
+  }
   return out;
+}
+
+/** Saved percent of full power, applied once when the link comes up. Sets
+ *  the level only — never PTT. Unset (no defaultPowerPct) does nothing. */
+function maybeApplyPowerOnConnect(up) {
+  if (!up) { _powerOnConnectDue = true; return; }
+  if (!_powerOnConnectDue) return;
+  _powerOnConnectDue = false;
+  const rig = _activeRigForMeters();
+  let full = 0;
+  try {
+    const m = getActiveRigModel();
+    full = (rig && Number(rig.fullPowerW) > 0) ? Number(rig.fullPowerW) : (m && Number(m.maxPower) > 0 ? Number(m.maxPower) : 0);
+  } catch { full = 0; }
+  const watts = require('./lib/rig-level-range').connectPowerWatts(rig, full);
+  if (watts == null) return;
+  setTimeout(() => {
+    try {
+      const rigType = detectRigType();
+      if (rigType === 'flex') gatedSmartSdrTxPower(watts);
+      else gatedSetTxPower(watts, { rigType });
+      sendCatLog(`[CAT] power on connect: ${watts} W`);
+    } catch (e) { sendCatLog('[CAT] power on connect failed: ' + (e && e.message || e)); }
+  }, 800);
 }
 
 // Meter pushes to ECHOCAT clients. The Flex streams its TX-bridge meters at
@@ -4910,6 +4948,25 @@ function bindRigStateEvents(controller) {
   controller.on('monLevel', sendCatMonLevel);
   controller.on('micGain', sendCatMicGain);
   controller.on('breakIn', sendCatBreakIn);
+  controller.on('meter-support', (support) => {
+    if (controller !== cat) return;
+    _meterSupport = support || null;
+    const payload = { type: 'meter-caps' };
+    if (support) {
+      if (support.smeter != null) payload.smeter = !!support.smeter;
+      if (support.swr != null) payload.swr = !!support.swr;
+      if (support.alc != null) payload.alc = !!support.alc;
+      if (support.fwdPower != null) payload.power = !!support.fwdPower;
+    }
+    if (remoteServer && remoteServer.running && typeof remoteServer.setMeterCaps === 'function') remoteServer.setMeterCaps(payload);
+    sendVfoState();
+    broadcastRigState();
+  });
+  controller.on('power-fixed', (fixed) => {
+    if (controller !== cat) return;
+    _txPowerFixed = !!fixed;
+    broadcastRigState();
+  });
   controller.on('ptt', (on) => txNoteRadioPtt(controller, on));
   controller.on('ptt', (on) => { if (!on && controller === cat) txMetersRestOnRx(); });
   controller.on('ptt', (on) => { if (!on && controller === cat) customCatReader.txEnded(); }); // #242: reads held during TX
@@ -8447,6 +8504,9 @@ async function connectCat() {
   // A new connection (or another rig) starts with nothing seen this session;
   // what this rig reported before still comes from rig.metersSeen.
   _metersSeenSession.clear();
+  _txPowerFixed = false;
+  _meterSupport = null;
+  _powerOnConnectDue = true;
   if (_connectCatPending) {
     if (settings && settings.catTarget && settings.catTarget.type === 'icom-network') {
       appendIcomNetworkDiagnostic('[Icom Network] connectCat skipped because another connect is already pending');
@@ -46319,6 +46379,7 @@ function cloudShackNotice(text, kind) {
         break;
       }
       case 'set-tx-power': {
+        if (_txPowerFixed) { sendCatLog('TX power not set — power fixed by radio'); break; }
         if (flexNeedsApi) { _flexWarnOnce('TX Power requires SmartSDR API — not connected'); break; }
         const value = Number(data.value) || 0;
         if (flexSdr()) {
