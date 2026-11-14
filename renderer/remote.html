@@ -964,6 +964,7 @@
       <button class="tab" data-tab="logbook">LB</button>
       <button class="tab" data-tab="activate">Act <span id="tab-activate-badge" class="tab-badge hidden">0</span></button>
       <button class="tab" data-tab="ft8">FT8</button>
+      <button class="tab" data-tab="js8">JS8</button>
       <!-- Where you are being heard: RBN + PSKReporter, as the desktop Prop view (LZ3AW) -->
       <button class="tab" data-tab="prop">Prop</button>
       <button class="tab hidden" data-tab="dir" id="dir-tab-btn">Dir</button>
@@ -2054,6 +2055,44 @@
           <button type="submit" id="log-save" class="log-btn-save">Save</button>
         </div>
       </form>
+    </div>
+
+    <!-- JS8 chat: engine, live traffic, heard stations, compose.
+         Transmit only after the confirm dialog. Opening the tab does not
+         start the engine, tune, or send. -->
+    <div id="js8-view" class="hidden" aria-label="JS8">
+      <div id="js8-bar" class="js8-bar">
+        <button type="button" id="js8-power" class="js8-btn">Start</button>
+        <select id="js8-band" class="js8-select" aria-label="JS8 band"></select>
+        <span id="js8-dial" class="js8-dial">—</span>
+        <span id="js8-submode" class="js8-meta">—</span>
+        <span id="js8-run" class="js8-pill">Off</span>
+        <span id="js8-tx" class="js8-pill js8-tx hidden">TX</span>
+      </div>
+      <div id="js8-swr" class="js8-swr hidden" role="status"></div>
+      <div id="js8-heard" class="js8-heard" aria-label="Stations heard"></div>
+      <div id="js8-list" class="js8-list" aria-live="polite" aria-relevant="additions"></div>
+      <div id="js8-note" class="js8-note" role="status"></div>
+      <form id="js8-compose" class="js8-compose" autocomplete="off">
+        <label class="js8-to-label" for="js8-to">To</label>
+        <input id="js8-to" class="js8-to" type="text" value="@ALLCALL" maxlength="16" autocapitalize="characters" spellcheck="false" enterkeyhint="next">
+        <input id="js8-text" class="js8-text" type="text" maxlength="200" placeholder="Message" enterkeyhint="send" autocomplete="off">
+        <button type="submit" id="js8-send" class="js8-btn js8-send">Send</button>
+      </form>
+      <div id="js8-confirm" class="js8-confirm hidden" role="dialog" aria-modal="true" aria-labelledby="js8-confirm-title">
+        <div class="js8-confirm-card">
+          <h2 id="js8-confirm-title" class="js8-confirm-title">Transmit this JS8 message?</h2>
+          <div class="js8-confirm-k">To</div>
+          <div id="js8-confirm-to" class="js8-confirm-v"></div>
+          <div class="js8-confirm-k">Text</div>
+          <div id="js8-confirm-text" class="js8-confirm-v"></div>
+          <p class="js8-confirm-hint">This keys the radio. Nothing is sent until you tap Transmit.</p>
+          <div class="js8-confirm-actions">
+            <button type="button" id="js8-confirm-cancel" class="js8-btn">Cancel</button>
+            <button type="button" id="js8-confirm-go" class="js8-btn js8-send">Transmit</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Log toast -->

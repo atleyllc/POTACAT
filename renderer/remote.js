@@ -980,6 +980,7 @@
   // 'scope' AND the active rig declares nativeScope.
   const scopeView = document.getElementById('scope-view');
   const mailView = document.getElementById('mail-view');
+  const js8View = document.getElementById('js8-view');
   const scopeTabBtn = document.getElementById('scope-tab-btn');
   let scopeServerOk = false;
   // The desktop replays this page's own keyer (cw-key) instead of re-keying
@@ -2108,6 +2109,8 @@
           }
         }
         updateCwEnableBtn();
+        // JS8 chat reconnects to the cached inbox (hydration follows this frame).
+        if (typeof js8OnConnect === 'function') js8OnConnect();
         // Load WebSDR stations from settings
         if (msg.settings && typeof kiwiLoadStationsE === 'function') kiwiLoadStationsE(msg.settings);
         // JTCAT RX *and* TX gain are DESKTOP-authoritative — jtcat-rx-gain-state
@@ -2404,6 +2407,25 @@
 
       case 'status':
         updateStatus(msg);
+        break;
+
+      case 'js8-state':
+        js8ApplyState(msg);
+        break;
+      case 'js8-activity':
+        js8AppendActivity(msg);
+        break;
+      case 'js8-heard':
+        js8ApplyHeard(msg);
+        break;
+      case 'js8-send-result':
+        js8ApplySendResult(msg);
+        break;
+      case 'ptt-refused':
+        // Another device holds the radio. JS8 send (and every other key-down)
+        // is refused here; say so, and drop a pending JS8 confirm result.
+        showToast(msg.message || 'Another device is transmitting.', 5000, true);
+        js8OnPttRefused();
         break;
 
       case 'pong':
@@ -6456,6 +6478,7 @@
     // A Guest Pass session must never see the owner's billing (Cloud section
     // + top banner read this flag).
     window.__echoGuestPass = !!(ps && ps.code);
+    if (typeof js8ApplyGuest === 'function') js8ApplyGuest();
     var el = document.getElementById('pass-banner');
     if (!el) return;
     if (!ps || !ps.code) { el.classList.add('hidden'); el.textContent = ''; return; }
@@ -7075,15 +7098,16 @@
     if (sstvView) { sstvView.classList.add('hidden'); sstvView.style.display = 'none'; }
     if (scopeView) { scopeView.classList.add('hidden'); scopeView.style.display = 'none'; }
     if (mailView) { mailView.classList.add('hidden'); mailView.style.display = 'none'; }
+    if (js8View) { js8View.classList.add('hidden'); js8View.style.display = 'none'; }
     // Popout trigger: visible only on the Map tab, and only in non-popout windows
     if (mapPopoutBtn) mapPopoutBtn.classList.toggle('hidden', isPopout || tab !== 'map');
     if (scanning) stopScan();
-    // Show/hide PTT button — hide when FT8/SSTV tab is active
-    pttBtn.style.display = (tab === 'ft8' || tab === 'sstv' || tab === 'scope' || tab === 'mail') ? 'none' : '';
-    // Hide entire bottom bar on FT8/SSTV tab
-    bottomBar.style.display = (tab === 'ft8' || tab === 'sstv' || tab === 'scope' || tab === 'mail') ? 'none' : '';
+    // Show/hide PTT button — hide when FT8/SSTV/JS8 tab is active
+    pttBtn.style.display = (tab === 'ft8' || tab === 'sstv' || tab === 'scope' || tab === 'mail' || tab === 'js8') ? 'none' : '';
+    // Hide entire bottom bar on FT8/SSTV/JS8 tab
+    bottomBar.style.display = (tab === 'ft8' || tab === 'sstv' || tab === 'scope' || tab === 'mail' || tab === 'js8') ? 'none' : '';
     // Hide Scan button and freq step arrows on FT8/SSTV tab
-    scanBtn.style.display = (tab === 'ft8' || tab === 'sstv' || tab === 'scope' || tab === 'mail') ? 'none' : '';
+    scanBtn.style.display = (tab === 'ft8' || tab === 'sstv' || tab === 'scope' || tab === 'mail' || tab === 'js8') ? 'none' : '';
     var freqStepBtns = document.getElementById('freq-step-btns');
     if (freqStepBtns) freqStepBtns.style.display = tab === 'ft8' ? 'none' : '';
     // Hide CW/SSB panels on tabs where they're not relevant
@@ -7163,6 +7187,9 @@
       if (scopeView) { scopeView.classList.remove('hidden'); scopeView.style.display = 'flex'; }
       scopeSizeCanvases();
       scopeDrawAll();
+    } else if (tab === 'js8') {
+      // The chat only. Do not start the engine, change band, or transmit.
+      if (js8View) { js8View.classList.remove('hidden'); js8View.style.display = 'flex'; }
     } else if (tab === 'sstv') {
       if (sstvView) { sstvView.classList.remove('hidden'); sstvView.style.display = 'flex'; }
       // Open SSTV on desktop + fetch recent decodes
@@ -9991,6 +10018,7 @@
     { id: 'logbook',  menuLabel: 'Logbook' },
     { id: 'activate', menuLabel: 'Activate' },
     { id: 'ft8',      menuLabel: 'FT8 / Digital' },
+    { id: 'js8',      menuLabel: 'JS8' },
     { id: 'dir',      menuLabel: 'Directory' },
     { id: 'sstv',     menuLabel: 'SSTV' },
   ];
@@ -16262,6 +16290,316 @@ var _paddleHoldTimer = { dit: null, dah: null };
     mailEl('mail-notice-no').addEventListener('click', function () { mailEl('mail-notice').classList.add('hidden'); mailNoticeThen = null; });
     mailGo('list');
   })();
+
+  // --- js8 remote chat ---
+  // Phone/web JS8 surface. The host owns addressing (text and to go out
+  // separately). Transmit only from js8ConfirmGo, after a confirm tap.
+  // No heartbeat, beacon, or CQ from this screen.
+  var js8State = { running: false };
+  var js8Pending = null;
+  var js8BandReq = null;
+  var js8Draft = null;
+  var js8BandLock = false;
+  var js8Seq = 0;
+  var JS8_BANDS = [
+    ['160m', 1842], ['80m', 3578], ['60m', 5357], ['40m', 7078],
+    ['30m', 10130], ['20m', 14078], ['17m', 18104], ['15m', 21078],
+    ['12m', 24922], ['10m', 28078], ['6m', 50318],
+  ];
+
+  function js8Req() {
+    js8Seq += 1;
+    return 'js8-' + Date.now().toString(36) + '-' + js8Seq;
+  }
+  function js8Guest() { return !!window.__echoGuestPass; }
+  function js8MyCall() {
+    var st = js8State && js8State.station && js8State.station.call;
+    return String(myCallsign || st || '').trim().toUpperCase();
+  }
+  function js8Note(text, isErr) {
+    var el = document.getElementById('js8-note');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('err', !!isErr);
+  }
+  function js8ApplyGuest() {
+    var g = js8Guest();
+    ['js8-power', 'js8-band', 'js8-to', 'js8-text', 'js8-send'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.disabled = g;
+    });
+    if (g) {
+      js8CloseConfirm();
+      js8Note('Guest Pass is receive-only for JS8.', true);
+    }
+  }
+  function js8OnConnect() {
+    js8Pending = null;
+    js8BandReq = null;
+    js8CloseConfirm();
+    var list = document.getElementById('js8-list');
+    if (list) {
+      list.textContent = '';
+      var empty = document.createElement('div');
+      empty.className = 'js8-empty';
+      empty.textContent = 'No JS8 traffic yet.';
+      list.appendChild(empty);
+    }
+    var heard = document.getElementById('js8-heard');
+    if (heard) heard.textContent = '';
+    js8ApplyGuest();
+  }
+  function js8SyncBand(band) {
+    var el = document.getElementById('js8-band');
+    if (!el) return;
+    js8BandLock = true;
+    var found = false;
+    for (var i = 0; i < el.options.length; i++) {
+      if (el.options[i].value === band) { el.selectedIndex = i; found = true; break; }
+    }
+    if (!found) el.selectedIndex = 0;
+    js8BandLock = false;
+  }
+  function js8ApplyState(msg) {
+    if (!msg) return;
+    js8State = msg;
+    var power = document.getElementById('js8-power');
+    if (power) power.textContent = msg.running ? 'Stop' : 'Start';
+    var run = document.getElementById('js8-run');
+    if (run) {
+      run.textContent = msg.running ? 'On' : 'Off';
+      run.classList.toggle('on', !!msg.running);
+    }
+    var dial = document.getElementById('js8-dial');
+    if (dial) dial.textContent = (msg.dialHz > 0 && typeof formatFreq === 'function') ? formatFreq(msg.dialHz) : '—';
+    var sub = document.getElementById('js8-submode');
+    if (sub) sub.textContent = msg.submode || '—';
+    var tx = document.getElementById('js8-tx');
+    if (tx) {
+      var queued = msg.txQueue > 0;
+      var on = !!msg.tx || queued;
+      tx.classList.toggle('hidden', !on);
+      tx.textContent = msg.tx ? 'TX' : (msg.txQueue + ' queued');
+    }
+    var swr = document.getElementById('js8-swr');
+    if (swr) {
+      swr.classList.toggle('hidden', !msg.swrTripped);
+      swr.textContent = msg.swrTripped ? (msg.swrMessage || 'SWR guard tripped.') : '';
+    }
+    if (msg.band) js8SyncBand(msg.band);
+    js8ApplyGuest();
+  }
+  function js8Hhmm(utc) {
+    var t = Number(utc) || 0;
+    if (t && t < 1e12) t *= 1000;
+    if (!t) return '';
+    var d = new Date(t);
+    return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+  }
+  function js8Snr(n) {
+    if (n === 0 || n) return (n > 0 ? '+' : '') + n + ' dB';
+    return '';
+  }
+  function js8ToMe(a) {
+    if (!a) return false;
+    if (a.kind === 'to-me') return true;
+    var to = String(a.to || '').trim().toUpperCase();
+    var me = js8MyCall();
+    return !!(me && to && to === me);
+  }
+  function js8AppendActivity(a) {
+    var list = document.getElementById('js8-list');
+    if (!list || !a) return;
+    var empty = list.querySelector('.js8-empty');
+    if (empty) empty.remove();
+    var near = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+    var row = document.createElement('div');
+    row.className = 'js8-row'
+      + (a.kind === 'activity' ? ' js8-activity' : '')
+      + (a.kind === 'out' ? ' js8-out' : '')
+      + (js8ToMe(a) ? ' js8-tome' : '');
+    var time = document.createElement('span');
+    time.className = 'js8-time';
+    time.textContent = js8Hhmm(a.utc);
+    var who = document.createElement('span');
+    who.className = 'js8-who';
+    var from = a.from || (a.kind === 'out' ? (js8MyCall() || 'YOU') : '');
+    var to = a.to ? (' \u203a ' + a.to) : '';
+    who.textContent = from + to;
+    var snr = document.createElement('span');
+    snr.className = 'js8-snr';
+    snr.textContent = js8Snr(a.snr);
+    var body = document.createElement('div');
+    body.className = 'js8-body';
+    body.textContent = a.text || '';
+    row.appendChild(time);
+    row.appendChild(who);
+    row.appendChild(snr);
+    row.appendChild(body);
+    list.appendChild(row);
+    while (list.querySelectorAll('.js8-row').length > 200) {
+      var first = list.querySelector('.js8-row');
+      if (first) first.remove(); else break;
+    }
+    if (near || list.querySelectorAll('.js8-row').length <= 3) list.scrollTop = list.scrollHeight;
+  }
+  function js8Ago(utc) {
+    var t = Number(utc) || 0;
+    if (t && t < 1e12) t *= 1000;
+    if (!t) return '';
+    var s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    return Math.floor(s / 3600) + 'h';
+  }
+  function js8ApplyHeard(msg) {
+    var el = document.getElementById('js8-heard');
+    if (!el) return;
+    var list = (msg && Array.isArray(msg.list)) ? msg.list : [];
+    var toEl = document.getElementById('js8-to');
+    var current = toEl ? String(toEl.value || '').trim().toUpperCase() : '';
+    el.textContent = '';
+    if (!list.length) {
+      var empty = document.createElement('div');
+      empty.className = 'js8-heard-empty';
+      empty.textContent = 'No stations heard.';
+      el.appendChild(empty);
+      return;
+    }
+    list.forEach(function (h) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      var call = String(h.call || '');
+      b.className = 'js8-heard-btn' + (call.toUpperCase() === current ? ' on' : '');
+      var name = document.createElement('span');
+      name.textContent = call;
+      b.appendChild(name);
+      var meta = document.createElement('span');
+      meta.className = 'js8-heard-snr';
+      var bits = [];
+      if (h.snr === 0 || h.snr) bits.push((h.snr > 0 ? '+' : '') + h.snr);
+      var age = js8Ago(h.utc);
+      if (age) bits.push(age);
+      meta.textContent = bits.length ? bits.join(' · ') : '';
+      b.appendChild(meta);
+      b.addEventListener('click', function () {
+        // Fills the To field only. Never transmits.
+        if (js8Guest() || !toEl) return;
+        toEl.value = call || '@ALLCALL';
+        js8ApplyHeard({ list: list });
+      });
+      el.appendChild(b);
+    });
+  }
+  function js8CloseConfirm() {
+    js8Draft = null;
+    var d = document.getElementById('js8-confirm');
+    if (d) d.classList.add('hidden');
+  }
+  function js8AskSend() {
+    if (js8Guest()) { js8Note('Guest Pass is receive-only for JS8.', true); return; }
+    var textEl = document.getElementById('js8-text');
+    var toEl = document.getElementById('js8-to');
+    var text = textEl ? textEl.value : '';
+    var to = (toEl && String(toEl.value || '').trim()) || '@ALLCALL';
+    if (!String(text).trim()) { js8Note('Type a message first.', true); return; }
+    js8Draft = { text: text, to: to };
+    var toOut = document.getElementById('js8-confirm-to');
+    var textOut = document.getElementById('js8-confirm-text');
+    if (toOut) toOut.textContent = to;
+    if (textOut) textOut.textContent = text;
+    var box = document.getElementById('js8-confirm');
+    if (box) box.classList.remove('hidden');
+  }
+  function js8ConfirmGo() {
+    var draft = js8Draft;
+    var box = document.getElementById('js8-confirm');
+    if (box) box.classList.add('hidden');
+    js8Draft = null;
+    if (!draft || js8Guest()) return;
+    if (!String(draft.text).trim()) return;
+    var reqId = js8Req();
+    js8Pending = { reqId: reqId, kind: 'send', text: draft.text, to: draft.to };
+    js8Note('Sending…');
+    // Host composes the on-air form from text + to. Do not concatenate here.
+    sendToServer({ type: 'js8-send', text: draft.text, to: draft.to, reqId: reqId });
+  }
+  function js8ApplySendResult(msg) {
+    if (!msg) return;
+    if (js8BandReq && msg.reqId === js8BandReq) {
+      js8BandReq = null;
+      if (!msg.ok) js8Note(msg.error || 'Band not changed.', true);
+      return;
+    }
+    if (!js8Pending || msg.reqId !== js8Pending.reqId) return;
+    var pending = js8Pending;
+    js8Pending = null;
+    if (!msg.ok) { js8Note(msg.error || 'Not sent.', true); return; }
+    if (pending.kind === 'send') {
+      js8AppendActivity({
+        kind: 'out',
+        from: js8MyCall() || 'YOU',
+        to: pending.to,
+        text: (msg.text != null && msg.text !== '') ? msg.text : pending.text,
+        utc: Date.now(),
+      });
+      var textEl = document.getElementById('js8-text');
+      if (textEl) textEl.value = '';
+      js8Note(msg.frames > 1 ? ('Queued, ' + msg.frames + ' frames.') : 'Queued.');
+    }
+  }
+  function js8OnPttRefused() {
+    if (!js8Pending || js8Pending.kind !== 'send') return;
+    js8Pending = null;
+    js8Note('Another device is transmitting.', true);
+  }
+  function js8Power() {
+    if (js8Guest()) return;
+    var starting = !js8State.running;
+    var reqId = js8Req();
+    js8Pending = { reqId: reqId, kind: starting ? 'start' : 'stop' };
+    sendToServer({ type: starting ? 'js8-start' : 'js8-stop', reqId: reqId });
+  }
+  function js8Init() {
+    var band = document.getElementById('js8-band');
+    if (band && !band.options.length) {
+      var blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = 'Band';
+      band.appendChild(blank);
+      JS8_BANDS.forEach(function (b) {
+        var o = document.createElement('option');
+        o.value = b[0];
+        o.textContent = b[0];
+        band.appendChild(o);
+      });
+      band.addEventListener('change', function () {
+        if (js8BandLock || js8Guest() || !band.value) return;
+        js8BandReq = js8Req();
+        sendToServer({ type: 'js8-set-band', band: band.value, reqId: js8BandReq });
+      });
+    }
+    var power = document.getElementById('js8-power');
+    if (power) power.addEventListener('click', js8Power);
+    var form = document.getElementById('js8-compose');
+    if (form) form.addEventListener('submit', function (e) { e.preventDefault(); js8AskSend(); });
+    var text = document.getElementById('js8-text');
+    if (text) text.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); js8AskSend(); }
+    });
+    var cancel = document.getElementById('js8-confirm-cancel');
+    if (cancel) cancel.addEventListener('click', js8CloseConfirm);
+    var go = document.getElementById('js8-confirm-go');
+    if (go) go.addEventListener('click', js8ConfirmGo);
+    var confirm = document.getElementById('js8-confirm');
+    if (confirm) confirm.addEventListener('click', function (e) { if (e.target === confirm) js8CloseConfirm(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && confirm && !confirm.classList.contains('hidden')) js8CloseConfirm();
+    });
+    js8OnConnect();
+  }
+  js8Init();
+  // --- end js8 remote chat ---
 
   // Auto-connect on page load (or bootstrap popout view)
   if (isPopout) {
