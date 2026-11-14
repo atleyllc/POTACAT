@@ -404,6 +404,7 @@
           <div class="so-slider-wrap">
             <input type="range" id="rc-txpower-slider" class="so-slider" min="0" max="100" value="100">
             <span id="rc-txpower-val" class="so-slider-val">100</span>
+            <span id="rc-txpower-fixed" class="so-slider-val hidden">power fixed by radio</span>
           </div>
         </div>
         <!-- The radio's own MIC GAIN over CAT (K6RBJ: replaces custom
@@ -1092,17 +1093,17 @@
          operator could never see the power meter at all (LZ3AW screenshot,
          2026-08-29). Each meter is now an atomic group and the strip wraps,
          so nothing is ever cut off at any width or zoom level. -->
-    <div id="echo-meter-strip" class="echo-meter-strip hidden">
-      <span class="em-group"><span class="em-label">S:</span>
+    <div id="echo-meter-strip" class="echo-meter-strip">
+      <span class="em-group" id="echo-smeter-group"><span class="em-label">S:</span>
         <canvas id="echo-smeter-bar" width="80" height="10" style="border-radius:2px;background:#111;"></canvas>
         <span id="echo-smeter-text" class="em-val">—</span></span>
-      <span class="em-group"><span class="em-label">SWR:</span>
+      <span class="em-group" id="echo-swr-group"><span class="em-label">SWR:</span>
         <canvas id="echo-swr-bar" width="80" height="10" style="border-radius:2px;background:#111;"></canvas>
         <span id="echo-swr-text" class="em-val">—</span></span>
-      <span class="em-group"><span class="em-label">ALC:</span>
+      <span class="em-group" id="echo-alc-group"><span class="em-label">ALC:</span>
         <canvas id="echo-alc-bar" width="80" height="10" style="border-radius:2px;background:#111;"></canvas>
         <span id="echo-alc-text" class="em-val">—</span></span>
-      <span class="em-group"><span class="em-label" title="RF power - measured watts while transmitting, power setting otherwise">PWR:</span>
+      <span class="em-group" id="echo-pwr-group"><span class="em-label" title="RF power - measured watts while transmitting, power setting otherwise">PWR:</span>
         <canvas id="echo-pwr-bar" width="80" height="10" style="border-radius:2px;background:#111;"></canvas>
         <span id="echo-pwr-text" class="em-val">—</span></span>
       <span class="em-group hidden" id="echo-tx-group"><span class="em-label" title="PC-side TX peak — what POTACAT is feeding to the radio's USB CODEC. If TX moves but ALC stays flat, raise USB MOD LEVEL on the radio.">TX audio:</span>

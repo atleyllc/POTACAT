@@ -1522,6 +1522,21 @@ function setRigFullPowerField(v) {
   const el = document.getElementById('set-rig-full-power');
   if (el) el.value = Number(v) > 0 ? String(v) : '';
 }
+function readRigPowerOnConnect() {
+  const on = document.getElementById('set-rig-power-on-connect');
+  const pctEl = document.getElementById('set-rig-default-power-pct');
+  if (!on || !on.checked) return { powerOnConnect: false };
+  const pct = pctEl ? parseFloat(pctEl.value) : NaN;
+  if (!Number.isFinite(pct)) return { powerOnConnect: false };
+  return { powerOnConnect: true, defaultPowerPct: Math.max(1, Math.min(100, Math.round(pct))) };
+}
+function setRigPowerOnConnectField(rig) {
+  const on = document.getElementById('set-rig-power-on-connect');
+  const pctEl = document.getElementById('set-rig-default-power-pct');
+  const set = !!(rig && rig.powerOnConnect && Number.isFinite(Number(rig.defaultPowerPct)));
+  if (on) on.checked = set;
+  if (pctEl) pctEl.value = set ? String(rig.defaultPowerPct) : '';
+}
 function readRigRxLevelField() {
   if (!rigRxLevel) return 0;
   return Math.max(-20, Math.min(20, Math.round(Number(rigRxLevel.value) || 0)));
@@ -2815,7 +2830,12 @@ if (rigModelSelect) rigModelSelect.addEventListener('change', async () => {
     // Xiegu G90: Other Rig (Hamlib) with its Hamlib model and baud rate.
     setRadioType('hamlib');
     hamlibFieldsLoaded = true;
-    await populateHamlibFields({ rigId: hamlib.rigId, baudRate: hamlib.baudRate });
+    await populateHamlibFields({
+      rigId: hamlib.rigId,
+      baudRate: hamlib.baudRate,
+      dtrOff: !!hamlib.dtrOff,
+      rigctldPort: hamlib.rigctldPort || 4532,
+    });
     updateRadioSubPanels();
     if (!setRigName.value.trim()) setRigName.value = modelName;
     return;
@@ -3496,6 +3516,7 @@ async function openRigEditor(mode, rigId) {
       await populateRigAudioDevices(rig.remoteAudioInput, rig.remoteAudioOutput);
       setRigRxLevelField(rig.rxLevelDb);
       setRigFullPowerField(rig.fullPowerW);
+      setRigPowerOnConnectField(rig);
       // Restore per-rig CW key port
       if (setCwKeyPort && rig.cwKeyPort) setCwKeyPort.value = rig.cwKeyPort;
       // Restore per-rig CW keying line (DTR/RTS override; default 'auto')
@@ -3533,6 +3554,7 @@ async function openRigEditor(mode, rigId) {
     if (setCwKeyLine) setCwKeyLine.value = 'auto';
     if (setRadioNr) setRadioNr.value = '1';
     setRigFullPowerField(null);
+    setRigPowerOnConnectField(null);
     const fh = document.getElementById('set-flex-api-host');
     if (fh) fh.value = '';
     setRadioType('flex');
@@ -3694,6 +3716,7 @@ async function saveRigEditor() {
       rig.remoteAudioOutput = rigAudioOut;
       rig.rxLevelDb = rigRxLevelDb;
       rig.fullPowerW = readRigFullPowerField();
+      Object.assign(rig, readRigPowerOnConnect());
       rig.audioSource = rigAudioSource;
       rig.cwKeyPort = rigCwKeyPortVal;
       rig.cwKeyLine = rigCwKeyLineVal;
@@ -3723,6 +3746,7 @@ async function saveRigEditor() {
       remoteAudioOutput: rigAudioOut,
       rxLevelDb: rigRxLevelDb,
       fullPowerW: readRigFullPowerField(),
+      ...readRigPowerOnConnect(),
       audioSource: rigAudioSource,
       cwKeyPort: rigCwKeyPortVal,
       cwKeyLine: rigCwKeyLineVal,
@@ -24974,6 +24998,10 @@ function rigApplyCapabilities(caps) {
     rigRfGain.classList.toggle('hidden', hasGainSteps);
   }
   rigTxPower.closest('.rig-popover-row').style.display = caps.txpower ? '' : 'none';
+  rigTxPower.disabled = !!caps.txpowerFixed;
+  if (rigTxPowerSelect) rigTxPowerSelect.disabled = !!caps.txpowerFixed;
+  const rigTxFixed = document.getElementById('rig-txpower-fixed');
+  if (rigTxFixed) rigTxFixed.classList.toggle('hidden', !caps.txpowerFixed);
   rigFilterPresets.closest('.rig-popover-row').style.display = caps.filter ? '' : 'none';
   // Phase-1 expanded modifiers — each button individually gated. Hide the
   // whole modifiers row only if every modifier is unsupported (keeps the

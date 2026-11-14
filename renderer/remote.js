@@ -2203,6 +2203,10 @@
         updateEchoSmeter(msg.value);
         break;
 
+      case 'meter-caps':
+        applyEchoMeterCaps(msg);
+        break;
+
       case 'swr':
         updateEchoSwr(msg.value);
         break;
@@ -3272,6 +3276,9 @@
         else if (s.mode !== undefined) soSquelchRow.classList.toggle('hidden', !(sqCap && s.mode === 'FM'));
       }
       soTxPowerRow.classList.toggle('hidden', !s.capabilities.txpower);
+      if (rcTxPowerSlider) rcTxPowerSlider.disabled = !!s.capabilities.txpowerFixed;
+      var rcTxFixed = document.getElementById('rc-txpower-fixed');
+      if (rcTxFixed) rcTxFixed.classList.toggle('hidden', !s.capabilities.txpowerFixed);
       rcVfoGroup.classList.toggle('hidden', !s.capabilities.vfo && !s.capabilities.split);
       const rcSplitBtn = document.getElementById('rc-split');
       if (rcSplitBtn) rcSplitBtn.classList.toggle('hidden', !s.capabilities.split);
@@ -5724,7 +5731,7 @@
   var echoPwrMaxSeen = 100;
   let echoFwdLiveAt = 0; // last measured fwd-power frame (wins over the setting)
   var echoShowMeter = document.getElementById('echo-show-meter');
-  var echoMeterEnabled = localStorage.getItem('echoMeterEnabled') === 'true';
+  var echoMeterEnabled = localStorage.getItem('echoMeterEnabled') !== 'false';
 
   echoShowMeter.checked = echoMeterEnabled;
   if (echoMeterEnabled) echoMeterStrip.classList.remove('hidden');
@@ -5845,25 +5852,42 @@
     echoSmeterText.style.color = color;
   }
 
+  function swrTone(swr) {
+    if (swr > 3) return { cls: 'swr-alarm', color: '#e94560' };
+    if (swr > 2) return { cls: 'swr-warn', color: '#f0a500' };
+    return { cls: '', color: '#4ecca3' };
+  }
+  function paintEchoSwr(swr) {
+    if (!echoMeterEnabled || !(swr > 0)) return;
+    var tone = swrTone(swr);
+    var group = document.getElementById('echo-swr-group');
+    if (group && !group.classList.contains('hidden')) {
+      group.classList.remove('swr-warn', 'swr-alarm');
+      if (tone.cls) group.classList.add(tone.cls);
+    }
+    drawEchoBar(echoSwrBar, Math.min(1, (swr - 1) / 4), tone.color);
+    echoSwrText.textContent = swr < 10 ? swr.toFixed(1) : '>10';
+    echoSwrText.style.color = tone.color;
+  }
+  function applyEchoMeterCaps(msg) {
+    var map = { smeter: 'echo-smeter-group', swr: 'echo-swr-group', alc: 'echo-alc-group', power: 'echo-pwr-group' };
+    Object.keys(map).forEach(function (k) {
+      if (msg[k] == null) return;
+      var el = document.getElementById(map[k]);
+      if (el) el.classList.toggle('hidden', msg[k] === false);
+    });
+    if (echoMeterEnabled) echoMeterStrip.classList.remove('hidden');
+  }
+
   function updateEchoSwr(val) {
     if (val > 0 && window.__vfSetSwr) window.__vfSetSwr(1.0 + val / 60);
     if (!echoMeterEnabled || val <= 0) return;
-    var swr = 1.0 + (val / 60);
-    var level = Math.min(1, (swr - 1) / 4);
-    var color = swr <= 1.5 ? '#4ecca3' : swr <= 2.0 ? '#ffd740' : swr <= 3.0 ? '#f0a500' : '#e94560';
-    drawEchoBar(echoSwrBar, level, color);
-    echoSwrText.textContent = swr < 10 ? swr.toFixed(1) : '>10';
-    echoSwrText.style.color = color;
+    paintEchoSwr(1.0 + (val / 60));
   }
 
   function updateEchoSwrRatio(swr) {
     if (window.__vfSetSwr) window.__vfSetSwr(swr);
-    if (!echoMeterEnabled) return;
-    var level = Math.min(1, (swr - 1) / 4);
-    var color = swr <= 1.5 ? '#4ecca3' : swr <= 2.0 ? '#ffd740' : swr <= 3.0 ? '#f0a500' : '#e94560';
-    drawEchoBar(echoSwrBar, level, color);
-    echoSwrText.textContent = swr < 10 ? swr.toFixed(1) : '>10';
-    echoSwrText.style.color = color;
+    paintEchoSwr(Number(swr) || 0);
   }
 
   function updateEchoAlc(val) {
@@ -15204,8 +15228,9 @@ var _paddleHoldTimer = { dit: null, dah: null };
         if (vfRfGainVal) vfRfGainVal.textContent = s.rfgain;
       }
       if (s.txpower !== undefined && vfTxPowerSlider) {
+        vfTxPowerSlider.disabled = !!(s.capabilities && s.capabilities.txpowerFixed);
         vfTxPowerSlider.value = s.txpower;
-        if (vfTxPowerVal) vfTxPowerVal.textContent = s.txpower;
+        if (vfTxPowerVal) vfTxPowerVal.textContent = s.capabilities && s.capabilities.txpowerFixed ? 'fixed' : s.txpower;
       }
     };
     window.__vfRenderVoiceMacros = renderVfVoice;

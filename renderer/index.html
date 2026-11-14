@@ -326,6 +326,7 @@
             <input type="range" id="rig-txpower" min="0" max="100" value="0" style="flex:1;accent-color:#4ecca3;">
             <select id="rig-txpower-select" class="hidden" style="flex:1;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-secondary);padding:2px 4px;font-size:12px;"></select>
             <span id="rig-txpower-label">0W</span>
+            <span id="rig-txpower-fixed" class="hidden" style="font-size:12px;color:var(--text-dim);">power fixed by radio</span>
           </div>
           <div class="rig-popover-row" id="rig-preamp-target-row">
             <label>Pre Target</label>
@@ -1852,6 +1853,14 @@
         <label>Full power (W):
           <input type="number" id="set-rig-full-power" min="0.1" max="2000" step="0.1" placeholder="from the model" style="width:110px;">
           <span class="help-text" style="display:block;margin-top:2px;">Leave blank unless POTACAT's TX power doesn't match your radio. Enter what the radio makes at full drive, e.g. 5 for a Hermes Lite 2 run through deskHPSDR, piHPSDR or Thetis (they present it as a 100 W radio). POTACAT then sets the power, shows it and logs it in real watts.</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="set-rig-power-on-connect">
+          Set TX power when this radio connects
+        </label>
+        <label>Power on connect (%):
+          <input type="number" id="set-rig-default-power-pct" min="1" max="100" step="1" placeholder="unset" style="width:80px;">
+          <span class="help-text" style="display:block;margin-top:2px;">Unset unless you tick the box. Percent of full power, applied once after each connect. It sets the level only and never keys the radio.</span>
         </label>
         <!-- Bands this radio is used on (lib/rig-bands.js): pre-ticked with the
              model's own bands; a transverter band can be added. Unticked bands
