@@ -397,5 +397,112 @@ test('sendJs8Thread and sendJs8SendResult reach the live client', () => {
   assert.strictEqual(ws._sent[1].frames, 1);
 });
 
+// ── multi-client: a JS8 bot and the phone see the same activity ─────────────
+
+function admit(rs, ws) {
+  ws._authenticated = true;
+  rs._clients.add(ws);
+  rs._client = ws;
+}
+
+test('two owner clients both receive the same JS8 activity; a guest does not see a DM', () => {
+  const rs = new RemoteServer();
+  rs.setMultiClient(true);
+  const bot = fakeWs();
+  const phone = fakeWs();
+  const guest = fakeWs();
+  guest._passSession = { code: 'G' };
+  admit(rs, bot);
+  admit(rs, phone); // newest primary; the bot must not be dropped
+  admit(rs, guest);
+  assert.strictEqual(rs._openClients().length, 3, 'admitting another client does not displace the others');
+
+  rs.broadcastJs8State({ running: true, band: '20m', dialHz: 14078000, submode: 'NORMAL', station: { call: 'K3SBP' } });
+  rs.broadcastJs8Activity({ kind: 'activity', text: 'CQ', from: 'W1AW', snr: -10, utc: 1 });
+  rs.broadcastJs8Activity({ kind: 'directed', text: 'secret', from: 'K1A', to: 'K3SBP', snr: -8, utc: 2 });
+  rs.broadcastJs8Activity({ kind: 'directed', text: 'hi all', from: 'K1A', to: '@ALLCALL', snr: -5, utc: 3 });
+
+  const texts = (ws) => ws._sent.filter((m) => m.type === 'js8-activity').map((m) => m.text);
+  assert.deepStrictEqual(texts(bot), ['CQ', 'secret', 'hi all']);
+  assert.deepStrictEqual(texts(phone), ['CQ', 'secret', 'hi all'], 'the phone sees the same activity as the bot');
+  assert.deepStrictEqual(texts(guest), ['CQ', 'hi all'], 'a directed call is a DM; @ALLCALL is a group');
+  assert.strictEqual(bot._sent.find((m) => m.type === 'js8-state').band, '20m');
+  assert.strictEqual(phone._sent.find((m) => m.type === 'js8-state').dialHz, 14078000);
+
+  const late = fakeWs();
+  late._authenticated = true;
+  rs._sendJs8Hydration(late);
+  const replay = late._sent.filter((m) => m.type === 'js8-activity');
+  assert.deepStrictEqual(replay.map((m) => m.text), ['CQ', 'secret', 'hi all']);
+  assert.ok(replay.every((m) => m.replay === true), 'a joiner gets the same tail, marked replay');
+
+  const lateGuest = fakeWs();
+  lateGuest._passSession = { code: 'G' };
+  rs._sendJs8Hydration(lateGuest);
+  assert.deepStrictEqual(
+    lateGuest._sent.filter((m) => m.type === 'js8-activity').map((m) => m.text),
+    ['CQ', 'hi all'],
+  );
+});
+
+test('js8-send is refused while another device holds PTT, and that device stays', () => {
+  const rs = new RemoteServer();
+  rs.setMultiClient(true);
+  const holder = fakeWs();
+  const phone = fakeWs();
+  admit(rs, holder);
+  admit(rs, phone);
+  rs._pttActive = true;
+  rs._pttOwnerWs = holder;
+  let emitted = 0;
+  rs.on('js8-send', () => { emitted++; });
+  rs.on('js8-send-hb', () => { emitted++; });
+  rs._handleMessage(phone, { type: 'js8-send', text: 'SNR?', to: 'W1AW', reqId: 'p1' }, {});
+  rs._handleMessage(phone, { type: 'js8-send-hb', reqId: 'p2' }, {});
+  rs._handleMessage(phone, { type: 'js8-heartbeat', enabled: true, reqId: 'p3' }, {});
+  assert.strictEqual(emitted, 0, 'nothing that keys the radio reaches main');
+  const refused = phone._sent.filter((m) => m.type === 'ptt-refused');
+  assert.strictEqual(refused.length, 3);
+  assert.ok(/transmitting/.test(refused[0].message));
+  assert.ok(rs._openClients().includes(holder) && rs._openClients().includes(phone));
+
+  // Turning the scheduler off is not a transmission.
+  let hb = null;
+  rs.on('js8-heartbeat', (e) => { hb = e; });
+  rs._handleMessage(phone, { type: 'js8-heartbeat', enabled: false, reqId: 'p4' }, {});
+  assert.deepStrictEqual(hb, { enabled: false, intervalMin: undefined, reqId: 'p4' });
+});
+
+// ── the web chat screen: confirm before TX, no beacon, guests cannot send ──
+
+test('the ECHOCAT JS8 tab confirms every send and does not transmit on its own', () => {
+  const root = require('path').join(__dirname, '..');
+  const html = readSrc(require('path').join(root, 'renderer', 'remote.html'));
+  const css = readSrc(require('path').join(root, 'renderer', 'remote.css'));
+  const web = readSrc(require('path').join(root, 'renderer', 'remote.js'));
+  assert.ok(html.includes('data-tab="js8"'), 'tab button');
+  assert.ok(html.includes('<button class="mp-btn" data-mode="JS8">JS8</button>'), 'mode picker still retunes; it is unchanged');
+  for (const id of ['js8-view', 'js8-power', 'js8-band', 'js8-dial', 'js8-submode', 'js8-list', 'js8-heard', 'js8-to', 'js8-text', 'js8-send', 'js8-confirm', 'js8-confirm-to', 'js8-confirm-text', 'js8-confirm-go', 'js8-confirm-cancel']) {
+    assert.ok(html.includes(`id="${id}"`), 'remote.html ' + id);
+  }
+  assert.ok(html.includes('value="@ALLCALL"'), 'compose defaults to @ALLCALL');
+  assert.ok(css.includes('#js8-view') && css.includes('--ds-'), 'styles use the design tokens');
+  assert.ok(web.includes("{ id: 'js8',      menuLabel: 'JS8' }"), 'TAB_DEFS');
+  for (const id of ['spots', 'map', 'log', 'logbook', 'activate', 'ft8', 'dir', 'sstv']) {
+    assert.ok(web.includes("id: '" + id + "'"), 'existing tab ' + id + ' still registered');
+  }
+  const block = web.slice(web.indexOf('// --- js8 remote chat ---'), web.indexOf('// --- end js8 remote chat ---'));
+  assert.ok(block.length > 500, 'chat block present');
+  assert.ok(block.includes("sendToServer({ type: 'js8-send', text: draft.text, to: draft.to, reqId: reqId })"), 'send passes text and to separately');
+  assert.strictEqual(block.split("type: 'js8-send'").length, 2, 'the only transmit of a message is js8ConfirmGo');
+  assert.ok(block.includes('function js8ConfirmGo'), 'confirm is a tap, not an automatic send');
+  assert.ok(!/js8-heartbeat|js8-send-hb|js8-send-sms|js8-set-hback/.test(block), 'this screen never beacons, heartbeats, or auto-replies');
+  assert.ok(!/remoteToken|console\.log\(/.test(block), 'the chat does not log, and does not touch the token');
+  assert.ok(block.includes('js8Guest()') && block.includes('Guest Pass is receive-only'), 'guest sessions cannot transmit from the UI');
+  assert.ok(/tab === 'js8'\) \{\s*\/\/ The chat only/.test(web), 'opening the tab does not start or tune');
+  assert.ok(!/tab === 'js8'[\s\S]{0,180}js8-start/.test(web), 'switchTab does not start the engine');
+  assert.ok(web.includes("case 'js8-state':") && web.includes("case 'js8-activity':") && web.includes("case 'js8-heard':") && web.includes("case 'js8-send-result':") && web.includes("case 'ptt-refused':"));
+});
+
 console.log(`\nJS8 remote: ${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
